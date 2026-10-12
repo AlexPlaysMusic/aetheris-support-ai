@@ -7,8 +7,19 @@ import ReactMarkdown from 'react-markdown';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import HeaderBrand from './components/Header';
 import {
+  CREDIT_DAILY_GUEST,
+  CREDIT_DAILY_PRO,
+  CREDIT_DAILY_USER,
+  creditIdentity,
+  messageCost,
+  refundCredits,
+  remainingCredits,
+  spendCredits
+} from '@/lib/credits';
+import {
   Check,
   ChevronDown,
+  Coins,
   Copy,
   FileText,
   Lock,
@@ -809,6 +820,9 @@ export default function ChatPage() {
   const [reduceMotion, toggleReduceMotion] = useLocalPref('aetheris-reduce-motion', false);
   const [reactions, setReactions] = useState<Record<string, 'up' | 'down'>>({});
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [creditsLeft, setCreditsLeft] = useState(CREDIT_DAILY_GUEST);
+  const [outOfCredits, setOutOfCredits] = useState(false);
+  const lastSpent = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [attachError, setAttachError] = useState<string | null>(null);
   const [processingFiles, setProcessingFiles] = useState(false);
@@ -822,6 +836,7 @@ export default function ChatPage() {
   const { data: session, status } = useSession();
   const userId = session?.user?.id || session?.user?.email || null;
   const storeKey = storageKeyFor(userId);
+  const creditId = useMemo(() => creditIdentity(userId), [userId]);
   const isGuest = status !== 'authenticated';
   const prevStoreKeyRef = useRef(storeKey);
 
@@ -861,6 +876,50 @@ export default function ChatPage() {
     if (q === '') return threads;
     return threads.filter((t) => t.title.toLowerCase().includes(q));
   }, [threads, searchQuery]);
+
+  const refreshCredits = useCallback(() => {
+    setCreditsLeft(remainingCredits(creditId));
+  }, [creditId]);
+
+  /* keep the balance fresh across identity changes, sends, and midnight rollover */
+  useEffect(() => {
+    setOutOfCredits(false);
+    refreshCredits();
+  }, [creditId, messages, refreshCredits]);
+
+  /* a failed request refunds the credits its send spent */
+  useEffect(() => {
+    if (error && lastSpent.current > 0) {
+      const amount = lastSpent.current;
+      lastSpent.current = 0;
+      setCreditsLeft(refundCredits(creditId, amount));
+    }
+  }, [error, creditId]);
+
+  /**
+   * Charge one send. Returns true when affordable (balance already
+   * updated); shows the out-of-credits notice and returns false otherwise.
+   */
+  const chargeSend = useCallback(
+    (images: number, files: number): boolean => {
+      const cost = messageCost({
+        pro: selectedModel === 'aetheris-pro',
+        images,
+        files
+      });
+      const remaining = spendCredits(creditId, cost);
+      if (remaining === null) {
+        lastSpent.current = 0;
+        setOutOfCredits(true);
+        return false;
+      }
+      lastSpent.current = cost;
+      setCreditsLeft(remaining);
+      setOutOfCredits(false);
+      return true;
+    },
+    [creditId, selectedModel]
+  );
 
   /* load per-account history; fold guest chats into the account on sign-in */
   useEffect(() => {
@@ -1195,6 +1254,15 @@ export default function ChatPage() {
     const text = input.trim();
     if ((!text && attachments.length === 0) || isLoading) return;
 
+    if (
+      !chargeSend(
+        attachments.filter((a) => a.kind === 'image').length,
+        attachments.filter((a) => a.kind !== 'image').length
+      )
+    ) {
+      return;
+    }
+
     if (attachments.length > 0) {
       // Text files + PDFs ride along as message text; photos go as
       // vision attachments so every provider receives the real content.
@@ -1226,6 +1294,7 @@ export default function ChatPage() {
 
   const sendSuggestion = (s: string) => {
     if (isLoading) return;
+    if (!chargeSend(0, 0)) return;
     void append({ role: 'user', content: s });
   };
 
@@ -1357,6 +1426,14 @@ export default function ChatPage() {
               )}
             </div>
             </div>
+
+            <span
+              title={`Daily credits — resets at midnight (${isGuest ? 'guest' : 'signed in'})`}
+              className="hidden shrink-0 items-center gap-1 rounded-full border border-white/10 bg-surface/80 px-2.5 py-1 text-[12px] font-medium text-slate-300 min-[420px]:flex"
+            >
+              <Coins size={13} className="text-cyan-300" />
+              {creditsLeft}
+            </span>
 
             {status === 'authenticated' && session?.user ? (
               <div className="relative shrink-0" ref={accountMenuRef}>
@@ -1844,6 +1921,28 @@ export default function ChatPage() {
               Adding your files…
             </div>
           )}
+          {outOfCredits && (
+            <div className="mb-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3.5 py-2.5 text-[12.5px] leading-6 text-amber-200">
+              {isGuest ? (
+                <>
+                  You&apos;re out of free credits for today.{' '}
+                  <button
+                    type="button"
+                    onClick={() => signIn('google')}
+                    className="font-semibold underline underline-offset-2 hover:text-amber-100"
+                  >
+                    Sign in for {CREDIT_DAILY_USER} a day
+                  </button>
+                  .
+                </>
+              ) : (
+                <>
+                  You&apos;re out of credits — more land at midnight. Pro members
+                  get {CREDIT_DAILY_PRO.toLocaleString()} a day.
+                </>
+              )}
+            </div>
+          )}
           {attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {attachments.map((a, i) => (
@@ -1980,7 +2079,8 @@ export default function ChatPage() {
             {[
               'Access to Aetheris v1.0 (Advanced Reasoning)',
               'Faster generation speeds & zero queue times',
-              'Increased rate limits & file attachment support'
+              'Increased rate limits & file attachment support',
+              `${CREDIT_DAILY_PRO.toLocaleString()} daily credits for heavy use`
             ].map((feature) => (
               <li key={feature} className="flex items-start gap-2.5 text-[13.5px] text-slate-200">
                 <Check size={16} className="mt-0.5 shrink-0 text-cyan-300" />
