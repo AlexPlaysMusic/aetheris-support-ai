@@ -21,7 +21,8 @@ import {
 
 let redis: Redis | null | undefined;
 
-function getRedis(): Redis | null {
+/** Shared Redis client (null when unconfigured). Safe to call anywhere. */
+export function getSharedRedis(): Redis | null {
   if (redis !== undefined) return redis;
   const url = process.env.UPSTASH_REDIS_REST_URL ?? '';
   const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? '';
@@ -34,7 +35,7 @@ function getRedis(): Redis | null {
 }
 
 export function strictMeteringEnabled(): boolean {
-  return getRedis() !== null;
+  return getSharedRedis() !== null;
 }
 
 function utcDayKey(date: Date = new Date()): string {
@@ -66,7 +67,7 @@ function balanceKey(identity: StrictIdentity): string {
 export async function strictBalance(
   identity: StrictIdentity
 ): Promise<number | null> {
-  const client = getRedis();
+  const client = getSharedRedis();
   if (!client) return null;
   try {
     const used = await client.get<number>(balanceKey(identity));
@@ -86,7 +87,7 @@ export async function strictSpend(
   identity: StrictIdentity,
   amount: number
 ): Promise<{ ok: boolean; remaining: number | null }> {
-  const client = getRedis();
+  const client = getSharedRedis();
   if (!client) return { ok: true, remaining: null };
   const key = balanceKey(identity);
   try {
@@ -111,7 +112,7 @@ export async function strictRefund(
   identity: StrictIdentity,
   amount: number
 ): Promise<void> {
-  const client = getRedis();
+  const client = getSharedRedis();
   if (!client || amount <= 0) return;
   try {
     await client.decrby(balanceKey(identity), amount);

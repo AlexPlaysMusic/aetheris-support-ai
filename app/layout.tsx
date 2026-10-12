@@ -7,8 +7,31 @@ export const metadata: Metadata = {
   description:
     'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and model switching.',
   manifest: '/manifest.json',
+  metadataBase: new URL('https://www.aetherisai.me'),
   icons: {
     icon: '/icon.svg'
+  },
+  openGraph: {
+    title: 'Aetheris AI | Chat',
+    description:
+      'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and photo understanding.',
+    url: '/',
+    siteName: 'Aetheris',
+    type: 'website',
+    images: [
+      {
+        url: '/icon.svg',
+        width: 64,
+        height: 64,
+        alt: 'Aetheris logo'
+      }
+    ]
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Aetheris AI | Chat',
+    description:
+      'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and photo understanding.'
   }
 };
 

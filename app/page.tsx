@@ -29,6 +29,7 @@ import {
   Mic,
   Paperclip,
   Pencil,
+  Download,
   Plus,
   RefreshCw,
   Search,
@@ -1416,6 +1417,40 @@ export default function ChatPage() {
     void append({ role: 'user', content: s });
   };
 
+  const exportChat = () => {
+    if (messages.length === 0) return;
+    const lines: string[] = [`# ${threadTitleFrom(messages)}`, ''];
+    for (const m of messages) {
+      if (m === null || typeof m !== 'object') continue;
+      const isUserMsg = m.role === 'user';
+      lines.push(isUserMsg ? '## You' : '## Aetheris', '');
+      const imgs = isUserMsg ? messageImages(m) : [];
+      if (imgs.length > 0) {
+        lines.push(
+          `_(${imgs.length} photo${imgs.length === 1 ? '' : 's'} attached — see the app for images)_`,
+          ''
+        );
+      }
+      const text = typeof m.content === 'string' ? m.content.trim() : '';
+      if (text !== '') lines.push(text, '');
+    }
+    lines.push('---', '_Exported from Aetheris_');
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeTitle = threadTitleFrom(messages)
+      .replace(/[^\w\- ]+/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 60);
+    a.href = url;
+    a.download = `aetheris-${safeTitle || 'chat'}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
   const canSend = input.trim().length > 0 || attachments.length > 0;
 
   const copyMessage = (id: string, text: string) => {
@@ -1445,6 +1480,53 @@ export default function ChatPage() {
     } catch {
       /* ignore */
     }
+  };
+
+  const [waitlistEmail, setWaitlistEmail] = useState('');
+  const [waitlistStatus, setWaitlistStatus] = useState<
+    'idle' | 'sending' | 'done' | 'error'
+  >('idle');
+  const [waitlistPosition, setWaitlistPosition] = useState<number | null>(null);
+  const [waitlistError, setWaitlistError] = useState<string | null>(null);
+
+  const submitWaitlist = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const email = waitlistEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setWaitlistError('Enter a valid email address.');
+      setWaitlistStatus('error');
+      return;
+    }
+    setWaitlistStatus('sending');
+    setWaitlistError(null);
+    void fetch('/api/waitlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    })
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!r.ok) {
+          const message =
+            (d && typeof d['message'] === 'string' && d['message']) ||
+            'Could not join the waitlist. Try again.';
+          throw new Error(message);
+        }
+        setWaitlistPosition(
+          d && typeof d['position'] === 'number' ? d['position'] : null
+        );
+        setWaitlistStatus('done');
+        joinWaitlist();
+      })
+      .catch((err: unknown) => {
+        setWaitlistError(
+          err instanceof Error ? err.message : 'Could not join. Try again.'
+        );
+        setWaitlistStatus('error');
+      });
   };
 
 
@@ -1828,6 +1910,14 @@ export default function ChatPage() {
           </div>
 
           <div className="border-t border-white/5 p-3">
+            <button
+              type="button"
+              onClick={exportChat}
+              disabled={messages.length === 0}
+              className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-[13px] font-medium text-slate-300 transition hover:border-white/25 hover:text-white disabled:opacity-40"
+            >
+              <Download size={15} /> Export chat (.md)
+            </button>
             {status === 'authenticated' && session?.user && (
               <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2">
                 <ProfileAvatar
@@ -2274,26 +2364,45 @@ export default function ChatPage() {
               </li>
             ))}
           </ul>
-          <button
-            type="button"
-            onClick={joinWaitlist}
-            disabled={joinedWaitlist}
-            className={`mt-5 flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
-              joinedWaitlist
-                ? 'cursor-default bg-white/10 text-slate-300'
-                : 'bg-[#00F2FE] text-[#06121a] shadow-glow hover:brightness-110'
-            }`}
-          >
-            {joinedWaitlist ? (
-              <>
-                <Check size={16} /> You&apos;re on the waitlist
-              </>
-            ) : (
-              'Join Pro Waitlist'
-            )}
-          </button>
+          {joinedWaitlist || waitlistStatus === 'done' ? (
+            <div className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm font-semibold text-slate-200">
+              <Check size={16} className="text-emerald-300" /> You&apos;re on
+              the waitlist
+              {waitlistPosition !== null && (
+                <span className="text-slate-400">· #{waitlistPosition} in line</span>
+              )}
+            </div>
+          ) : (
+            <form onSubmit={submitWaitlist} className="mt-5">
+              <label
+                htmlFor="waitlist-email"
+                className="mb-1.5 block text-[12px] font-medium text-slate-300"
+              >
+                Email for your invite
+              </label>
+              <input
+                id="waitlist-email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={waitlistEmail}
+                onChange={(e) => setWaitlistEmail(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-abyss px-3 py-2.5 text-[14px] text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none"
+              />
+              {waitlistStatus === 'error' && waitlistError && (
+                <p className="mt-1.5 text-[12px] text-red-300">{waitlistError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={waitlistStatus === 'sending'}
+                className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#00F2FE] px-3 py-2.5 text-sm font-semibold text-[#06121a] shadow-glow transition hover:brightness-110 disabled:opacity-60"
+              >
+                {waitlistStatus === 'sending' ? 'Joining…' : 'Join Pro Waitlist'}
+              </button>
+            </form>
+          )}
           <p className="mt-2.5 text-center text-[11px] text-slate-500">
-            No payment today. We&apos;ll email you when Pro opens up.
+            No payment today. We only ever email you about Pro.
           </p>
         </ModalShell>
       )}
@@ -2346,7 +2455,14 @@ export default function ChatPage() {
             />
           </div>
           <p className="mt-3 border-t border-white/5 pt-3 text-[11px] leading-5 text-slate-500">
-            More settings (account, notifications, data controls) are coming soon.
+            More settings (account, notifications, data controls) are coming soon.{' '}
+            <a href="/privacy" className="underline underline-offset-2 hover:text-slate-300">
+              Privacy
+            </a>{' '}
+            ·{' '}
+            <a href="/terms" className="underline underline-offset-2 hover:text-slate-300">
+              Terms
+            </a>
           </p>
         </ModalShell>
       )}
