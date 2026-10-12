@@ -77,10 +77,13 @@ export async function POST(req: Request) {
       from: SUPPORT_FROM,
       to: [email],
       replyTo: 'support@aetherisai.me',
-      subject: 'Re: Your Aetheris Support Request',
+      subject: 'Aetheris Support — Response to your request',
       html: `
         <div style="font-family: sans-serif; background-color: #09090b; color: #ffffff; padding: 24px; border-radius: 8px; max-width: 500px;">
-          <h2 style="margin-top: 0; color: #ffffff;">Aetheris Support</h2>
+          <div style="text-align: center; margin-bottom: 8px;">
+            <img src="https://www.aetherisai.me/aetheris-email.png" width="72" height="72" alt="Aetheris" style="display: inline-block;" />
+            <h2 style="margin: 8px 0 0; color: #ffffff; letter-spacing: 0.5px;">Aetheris Support</h2>
+          </div>
           <p style="color: #a1a1aa; font-size: 14px;">Your message: "${escapeHtml(message).slice(0, 2000)}"</p>
           <hr style="border-color: #27272a; margin: 16px 0;" />
           <div style="color: #e4e4e7; font-size: 15px; line-height: 1.5;">

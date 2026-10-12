@@ -20,9 +20,9 @@ export const metadata: Metadata = {
     type: 'website',
     images: [
       {
-        url: '/icon.svg',
-        width: 64,
-        height: 64,
+        url: '/aetheris-email.png',
+        width: 480,
+        height: 480,
         alt: 'Aetheris logo'
       }
     ]
