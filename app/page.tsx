@@ -28,10 +28,12 @@ import {
   Menu,
   Mic,
   Paperclip,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
   Send,
+  Share2,
   Settings,
   Sparkles,
   Square,
@@ -322,6 +324,51 @@ function reportClient(kind: string, message: string, extra?: string): void {
   } catch {
     /* never break the app over diagnostics */
   }
+}
+
+const SHARE_SIZE_LIMIT = 150_000;
+
+/**
+ * Build a shareable link embedding the chat in the URL hash (no server
+ * storage needed). Photos are included when the link stays small enough;
+ * oversized chats share as text only. Returns null when even that is too big.
+ */
+function buildShareLink(t: Thread): string | null {
+  const slim: {
+    v: number;
+    title: string;
+    messages: { role: 'user' | 'assistant'; content: string; images: string[] }[];
+  } = {
+    v: 1,
+    title: t.title,
+    messages: t.messages
+      .filter((m) => m !== null && typeof m === 'object')
+      .map((m) => {
+        const record = m as unknown as Record<string, unknown>;
+        return {
+          role: record['role'] === 'user' ? ('user' as const) : ('assistant' as const),
+          content:
+            typeof record['content'] === 'string'
+              ? (record['content'] as string).slice(0, 6000)
+              : '',
+          images: messageImages(m as Message).slice(0, 4)
+        };
+      })
+      .filter((m) => m.content !== '' || m.images.length > 0)
+  };
+  const encode = (dropImages: boolean): string => {
+    if (dropImages) {
+      for (const m of slim.messages) m.images = [];
+    }
+    const bytes = new TextEncoder().encode(JSON.stringify(slim));
+    let binary = '';
+    for (const b of bytes) binary += String.fromCharCode(b);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  let code = encode(false);
+  if (code.length > SHARE_SIZE_LIMIT) code = encode(true);
+  if (code.length > SHARE_SIZE_LIMIT) return null;
+  return `${window.location.origin}/share#${code}`;
 }
 
 /** Best-effort clipboard write with a legacy fallback. */
@@ -824,6 +871,9 @@ export default function ChatPage() {
   const [outOfCredits, setOutOfCredits] = useState(false);
   const lastSpent = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [sharedId, setSharedId] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [processingFiles, setProcessingFiles] = useState(false);
   const attachErrTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -848,6 +898,26 @@ export default function ChatPage() {
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const msgCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /* reconcile the header balance with the authoritative server ledger */
+  const resyncServerCredits = useCallback(() => {
+    void fetch('/api/credits')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: unknown) => {
+        const rec =
+          d !== null && typeof d === 'object'
+            ? (d as Record<string, unknown>)
+            : null;
+        if (rec && typeof rec['remaining'] === 'number') {
+          const remaining = rec['remaining'] as number;
+          setCreditsLeft(remaining);
+          if (remaining <= 0) setOutOfCredits(true);
+        }
+      })
+      .catch(() => {
+        /* offline — keep the local balance */
+      });
+  }, []);
+
   const {
     messages,
     input,
@@ -863,7 +933,13 @@ export default function ChatPage() {
   } = useChat({
     api: '/api/chat',
     id: chatId,
-    body: { model: selectedModel, userId }
+    body: { model: selectedModel, userId },
+    onFinish: () => {
+      resyncServerCredits();
+    },
+    onError: () => {
+      resyncServerCredits();
+    }
   });
 
   const activeModel = useMemo(
@@ -1109,6 +1185,48 @@ export default function ChatPage() {
     setSearchQuery('');
     setSidebarOpen(false);
   }, [setMessages, storeKey]);
+
+  const deleteThread = useCallback(
+    (id: string) => {
+      setRenamingId((current) => (current === id ? null : current));
+      setThreads((prev) => {
+        const next = prev.filter((t) => t.id !== id);
+        persistThreads(storeKey, next);
+        return next;
+      });
+      if (id === chatId) {
+        setMessages([]);
+        setChatId(newId());
+      }
+    },
+    [chatId, setMessages, storeKey]
+  );
+
+  const commitRename = useCallback(() => {
+    if (renamingId === null) return;
+    const title = renameDraft.trim().slice(0, 80);
+    if (title !== '') {
+      setThreads((prev) => {
+        const next = prev.map((t) => (t.id === renamingId ? { ...t, title } : t));
+        persistThreads(storeKey, next);
+        return next;
+      });
+    }
+    setRenamingId(null);
+  }, [renamingId, renameDraft, storeKey]);
+
+  const shareThread = useCallback((t: Thread) => {
+    const link = buildShareLink(t);
+    if (!link) {
+      showAttachError('Chat is too large to share as a link (photos make links huge).');
+      return;
+    }
+    void copyText(link).then(() => {
+      setSharedId(t.id);
+      if (msgCopyTimer.current) clearTimeout(msgCopyTimer.current);
+      msgCopyTimer.current = setTimeout(() => setSharedId(null), 1600);
+    });
+  }, []);
 
   const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     // Snapshot the selection first: clearing the input can invalidate
@@ -1612,31 +1730,99 @@ export default function ChatPage() {
               </p>
             ) : (
               filteredThreads.map((t) => (
-                <button
+                <div
                   key={t.id}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    openThread(t);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      openThread(t);
-                    }
-                  }}
-                  className={`mb-1 w-full rounded-lg px-3 py-2.5 text-left transition hover:bg-white/5 ${
+                  className={`mb-1 flex items-center gap-0.5 rounded-lg transition hover:bg-white/5 ${
                     t.id === chatId ? 'bg-cyan-400/10' : ''
                   }`}
                 >
-                  <span className="block truncate text-[13px] font-medium text-slate-100">
-                    {t.title}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] text-slate-500">
-                    {new Date(t.createdAt).toLocaleDateString()} ·{' '}
-                    {t.model === 'aetheris-pro' ? 'Pro (locked)' : 'Basic'}
-                  </span>
-                </button>
+                  {renamingId === t.id ? (
+                    <div className="min-w-0 flex-1 px-3 py-2.5">
+                      <input
+                        autoFocus
+                        value={renameDraft}
+                        maxLength={80}
+                        aria-label="Rename chat"
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitRename();
+                          } else if (e.key === 'Escape') {
+                            setRenamingId(null);
+                          }
+                        }}
+                        onBlur={() => commitRename()}
+                        className="w-full rounded-md border border-cyan-300/40 bg-abyss px-2 py-1 text-[13px] text-white focus:outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={`Open chat: ${t.title}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        openThread(t);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          openThread(t);
+                        }
+                      }}
+                      className="min-w-0 flex-1 px-3 py-2.5 text-left"
+                    >
+                      <span className="block truncate text-[13px] font-medium text-slate-100">
+                        {t.title}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-slate-500">
+                        {new Date(t.createdAt).toLocaleDateString()} ·{' '}
+                        {t.model === 'aetheris-pro' ? 'Pro (locked)' : 'Basic'}
+                      </span>
+                    </button>
+                  )}
+                  {renamingId !== t.id && (
+                    <span className="flex shrink-0 items-center pr-1">
+                      <button
+                        type="button"
+                        aria-label={`Rename chat: ${t.title}`}
+                        title="Rename"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setRenamingId(t.id);
+                          setRenameDraft(t.title);
+                        }}
+                        className="rounded-md p-1.5 text-slate-600 transition hover:bg-white/5 hover:text-slate-200"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Copy share link for: ${t.title}`}
+                        title={sharedId === t.id ? 'Link copied' : 'Copy share link'}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => shareThread(t)}
+                        className="rounded-md p-1.5 text-slate-600 transition hover:bg-white/5 hover:text-slate-200"
+                      >
+                        {sharedId === t.id ? (
+                          <Check size={14} className="text-emerald-300" />
+                        ) : (
+                          <Share2 size={14} />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete chat: ${t.title}`}
+                        title="Delete"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => deleteThread(t.id)}
+                        className="rounded-md p-1.5 text-slate-600 transition hover:bg-white/5 hover:text-red-300"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </span>
+                  )}
+                </div>
               ))
             )}
           </div>

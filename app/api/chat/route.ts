@@ -1,12 +1,20 @@
+import { getServerSession } from 'next-auth';
 import { google } from '@ai-sdk/google';
 import { openai } from '@ai-sdk/openai';
 import { streamText } from 'ai';
+import { authOptions } from '@/lib/auth';
 import {
   createCustomChatModel,
   getCustomConfig,
   resolveCustomModelId
 } from '@/lib/custom-llm';
 import { createDemoChatModel } from '@/lib/demo-llm';
+import { messageCost } from '@/lib/credits';
+import {
+  strictIdentityFor,
+  strictRefund,
+  strictSpend
+} from '@/lib/credit-server';
 
 export const maxDuration = 30;
 
@@ -118,7 +126,21 @@ export async function GET() {
   });
 }
 
+function clientIp(req: Request): string | null {
+  const forwarded = req.headers.get('x-forwarded-for');
+  const ip = forwarded?.split(',')[0]?.trim();
+  return ip && ip !== '' ? ip : null;
+}
+
 export async function POST(req: Request) {
+  // Strict credit identity: verified session id when signed in, else IP.
+  // (The body userId is ignored for metering — clients can lie about it.)
+  const session = await getServerSession(authOptions).catch(() => null);
+  const sessionUserId =
+    session?.user?.id || session?.user?.email || null;
+  const identity = strictIdentityFor(sessionUserId, clientIp(req));
+  let spent = 0;
+
   try {
     const body = await req.json();
     const messages = body?.messages;
@@ -136,6 +158,31 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
+
+    // Strict server-side metering (no-op unless Redis is configured).
+    // Text files + PDFs arrive inlined in the message text, so the server
+    // prices images from attachments; the client prices everything upfront.
+    const last = messages[messages.length - 1] as Record<string, unknown>;
+    const imageCount = imageUrlsFrom(last['experimental_attachments']).length;
+    const cost = messageCost({
+      pro: false,
+      images: imageCount,
+      files: 0
+    });
+    const wallet = await strictSpend(identity, cost);
+    if (!wallet.ok) {
+      return Response.json(
+        {
+          error: 'OUT_OF_CREDITS',
+          message:
+            identity.kind === 'guest'
+              ? 'Out of free credits for today — sign in for 100 a day.'
+              : 'Out of credits for today — more land at midnight.'
+        },
+        { status: 402 }
+      );
+    }
+    spent = cost;
 
     const provider = (process.env.LLM_PROVIDER ?? 'demo').toLowerCase();
     const modelMessages = withAttachments(messages);
@@ -212,6 +259,8 @@ export async function POST(req: Request) {
     });
     return result.toDataStreamResponse();
   } catch (err) {
+    // The response never streamed: refund the strict spend (if any).
+    if (spent > 0) await strictRefund(identity, spent);
     console.error('[aetheris/chat] error:', err);
     const message =
       err instanceof Error ? err.message : 'Failed to generate a response.';
