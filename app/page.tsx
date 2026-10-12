@@ -22,6 +22,7 @@ import {
   Coins,
   Copy,
   FileText,
+  LifeBuoy,
   Lock,
   LogIn,
   LogOut,
@@ -862,6 +863,58 @@ export default function ChatPage() {
   const [joinedWaitlist, setJoinedWaitlist] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
+  const [contactStatus, setContactStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
+  const [contactError, setContactError] = useState<string | null>(null);
+
+  const openHelp = () => {
+    setContactEmail(session?.user?.email ?? '');
+    setContactMessage('');
+    setContactError(null);
+    setContactStatus('idle');
+    setSidebarOpen(false);
+    setHelpOpen(true);
+  };
+
+  const submitSupport = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const email = contactEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setContactError('Enter a valid email address.');
+      setContactStatus('error');
+      return;
+    }
+    if (contactMessage.trim() === '') {
+      setContactError('Describe the problem first.');
+      setContactStatus('error');
+      return;
+    }
+    setContactStatus('sending');
+    setContactError(null);
+    void fetch('/api/support', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, message: contactMessage.trim() })
+    })
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!r.ok) {
+          throw new Error(
+            (d && typeof d['error'] === 'string' && d['error']) ||
+              'Could not send. Try again.'
+          );
+        }
+        setContactStatus('done');
+      })
+      .catch((err: unknown) => {
+        setContactError(
+          err instanceof Error ? err.message : 'Could not send. Try again.'
+        );
+        setContactStatus('error');
+      });
+  };
   const [enterToSend, toggleEnterToSend] = useLocalPref('aetheris-enter-to-send', true);
   const [autoScroll, toggleAutoScroll] = useLocalPref('aetheris-auto-scroll', true);
   const [showTimestamps, toggleTimestamps] = useLocalPref('aetheris-timestamps', false);
@@ -1107,6 +1160,7 @@ export default function ChatPage() {
       if (e.key !== 'Escape') return;
       setUpgradeOpen(false);
       setSettingsOpen(false);
+      setHelpOpen(false);
       setAccountOpen(false);
       setModelOpen(false);
     };
@@ -1918,6 +1972,13 @@ export default function ChatPage() {
             >
               <Download size={15} /> Export chat (.md)
             </button>
+            <button
+              type="button"
+              onClick={openHelp}
+              className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-[13px] font-medium text-slate-300 transition hover:border-white/25 hover:text-white"
+            >
+              <LifeBuoy size={15} /> Help &amp; Support
+            </button>
             {status === 'authenticated' && session?.user && (
               <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2">
                 <ProfileAvatar
@@ -2404,6 +2465,73 @@ export default function ChatPage() {
           <p className="mt-2.5 text-center text-[11px] text-slate-500">
             No payment today. We only ever email you about Pro.
           </p>
+        </ModalShell>
+      )}
+
+      {/* ----------------------- help & support modal ---------------------- */}
+      {helpOpen && (
+        <ModalShell title="Help & Support" onClose={() => setHelpOpen(false)}>
+          {contactStatus === 'done' ? (
+            <div className="py-2 text-center">
+              <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-emerald-400/15">
+                <Check size={20} className="text-emerald-300" />
+              </span>
+              <p className="mt-3 text-[14px] font-semibold text-white">
+                Reply on its way
+              </p>
+              <p className="mx-auto mt-1 max-w-[260px] text-[12.5px] leading-6 text-slate-400">
+                Our AI drafted an answer and emailed it to {contactEmail}.
+                Check spam if it doesn&apos;t arrive in a few minutes.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-[13px] leading-6 text-slate-400">
+                Describe the problem — our AI drafts a reply and emails it to you.
+              </p>
+              <form onSubmit={submitSupport} className="mt-3">
+                <label
+                  htmlFor="support-email"
+                  className="mb-1.5 block text-[12px] font-medium text-slate-300"
+                >
+                  Your email
+                </label>
+                <input
+                  id="support-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={contactEmail}
+                  onChange={(e) => setContactEmail(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-abyss px-3 py-2.5 text-[14px] text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none"
+                />
+                <label
+                  htmlFor="support-message"
+                  className="mb-1.5 mt-3 block text-[12px] font-medium text-slate-300"
+                >
+                  What went wrong?
+                </label>
+                <textarea
+                  id="support-message"
+                  rows={4}
+                  placeholder="e.g. Sign-in loops back to the homepage…"
+                  value={contactMessage}
+                  onChange={(e) => setContactMessage(e.target.value)}
+                  className="max-h-[160px] w-full resize-none rounded-xl border border-white/10 bg-abyss px-3 py-2.5 text-[14px] leading-6 text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none"
+                />
+                {contactStatus === 'error' && contactError && (
+                  <p className="mt-1.5 text-[12px] text-red-300">{contactError}</p>
+                )}
+                <button
+                  type="submit"
+                  disabled={contactStatus === 'sending'}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-3 py-2.5 text-sm font-semibold text-[#06121a] transition hover:bg-cyan-300 disabled:opacity-60"
+                >
+                  {contactStatus === 'sending' ? 'Sending…' : 'Send to support'}
+                </button>
+              </form>
+            </>
+          )}
         </ModalShell>
       )}
 

@@ -95,8 +95,8 @@ export default function PrivacyPage() {
 
         <Section title="Contact">
           <p>
-            Questions about this policy: reply to any Pro waitlist email and
-            we&apos;ll answer from there.
+            Questions about this policy: open Help &amp; Support in the app
+            menu and our AI support will email you back.
           </p>
         </Section>
       </main>
