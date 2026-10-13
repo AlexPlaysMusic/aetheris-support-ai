@@ -9,7 +9,13 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   metadataBase: new URL('https://www.aetherisai.me'),
   icons: {
-    icon: '/icon.svg'
+    icon: '/icon.svg',
+    apple: '/apple-touch-icon.png'
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Aetheris'
   },
   openGraph: {
     title: 'Aetheris AI | Chat',

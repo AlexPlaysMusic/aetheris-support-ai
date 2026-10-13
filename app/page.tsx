@@ -10,6 +10,7 @@ import {
   CREDIT_DAILY_GUEST,
   CREDIT_DAILY_PRO,
   CREDIT_DAILY_USER,
+  CREDIT_COST_IMAGE_GEN,
   creditIdentity,
   messageCost,
   refundCredits,
@@ -32,6 +33,7 @@ import {
   Pencil,
   Download,
   Plus,
+  Smartphone,
   RefreshCw,
   Search,
   Send,
@@ -461,7 +463,10 @@ function threadTitleFrom(messages: Message[]): string {
   );
   const content =
     typeof firstUser?.content === 'string' ? firstUser.content : '';
-  const raw = content.trim().replace(/\s+/g, ' ');
+  const raw = content
+    .trim()
+    .replace(/^\/(draw|image)\s+/i, '')
+    .replace(/\s+/g, ' ');
   if (raw) return raw.length > 42 ? `${raw.slice(0, 42)}…` : raw;
   if (firstUser && messageImages(firstUser).length > 0) return 'Photo message';
   return 'New conversation';
@@ -629,6 +634,14 @@ function ChatMarkdown({ content }: { content: string }) {
       <ReactMarkdown
         components={{
           pre: ({ children }) => <>{children}</>,
+          img: ({ src, alt }) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={typeof src === 'string' ? src : ''}
+              alt={typeof alt === 'string' ? alt : 'Generated image'}
+              className="my-2 max-h-96 w-auto rounded-xl border border-white/10"
+            />
+          ),
           code: ({ className, children }) => {
             const text = String(children ?? '').replace(/\n$/, '');
             const match = /language-([\w-]+)/.exec(className || '');
@@ -930,6 +943,46 @@ export default function ChatPage() {
   const [sharedId, setSharedId] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [processingFiles, setProcessingFiles] = useState(false);
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const imageAbort = useRef<AbortController | null>(null);
+  const [canInstall, setCanInstall] = useState(false);
+  const installEvt = useRef<{
+    prompt: () => Promise<void>;
+  } | null>(null);
+
+  /* capture the PWA install prompt (Chrome/Edge/Android) */
+  useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia('(display-mode: standalone)').matches
+    ) {
+      return;
+    }
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      installEvt.current = e as unknown as { prompt: () => Promise<void> };
+      setCanInstall(true);
+    };
+    const onInstalled = () => {
+      installEvt.current = null;
+      setCanInstall(false);
+    };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  const installApp = () => {
+    const evt = installEvt.current;
+    if (!evt) return;
+    void evt.prompt().then(() => {
+      installEvt.current = null;
+      setCanInstall(false);
+    });
+  };
   const attachErrTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showAttachError = (message: string) => {
@@ -1422,10 +1475,89 @@ export default function ChatPage() {
     }
   };
 
+  const generateImage = (prompt: string) => {
+    const remaining = spendCredits(creditId, CREDIT_COST_IMAGE_GEN);
+    if (remaining === null) {
+      lastSpent.current = 0;
+      setOutOfCredits(true);
+      return;
+    }
+    lastSpent.current = CREDIT_COST_IMAGE_GEN;
+    setCreditsLeft(remaining);
+    setOutOfCredits(false);
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
+    const userMsg: Message = {
+      id: newId(),
+      role: 'user',
+      content: prompt,
+      createdAt: new Date()
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    const controller = new AbortController();
+    imageAbort.current = controller;
+    setGeneratingImage(true);
+    void fetch('/api/image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+      signal: controller.signal
+    })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!res.ok || !data || typeof data['image'] !== 'string') {
+          throw new Error(
+            (data && typeof data['error'] === 'string' && data['error']) ||
+              (data && typeof data['message'] === 'string' && data['message']) ||
+              'Image generation failed.'
+          );
+        }
+        const assistantMsg: Message = {
+          id: newId(),
+          role: 'assistant',
+          content: `![Generated image: ${prompt.slice(0, 120)}](${data['image'] as string})`,
+          createdAt: new Date()
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
+        resyncServerCredits();
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          // Cancelled: pull the optimistic message back out.
+          setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+        } else {
+          showAttachError(
+            err instanceof Error ? err.message : 'Image generation failed.'
+          );
+        }
+        lastSpent.current = 0;
+        setCreditsLeft(refundCredits(creditId, CREDIT_COST_IMAGE_GEN));
+      })
+      .finally(() => {
+        setGeneratingImage(false);
+        imageAbort.current = null;
+      });
+  };
+
   const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const text = input.trim();
-    if ((!text && attachments.length === 0) || isLoading) return;
+    if ((!text && attachments.length === 0) || isLoading || generatingImage) return;
+
+    // Slash command: "/draw a sunset" skips chat and renders a picture.
+    const drawMatch = /^\/(draw|image)\s+([\s\S]+)/.exec(text);
+    if (drawMatch && attachments.length === 0) {
+      const prompt = drawMatch[2].trim();
+      if (prompt !== '') {
+        generateImage(prompt);
+        return;
+      }
+    }
 
     if (
       !chargeSend(
@@ -1979,6 +2111,15 @@ export default function ChatPage() {
             >
               <LifeBuoy size={15} /> Help &amp; Support
             </button>
+            {canInstall && (
+              <button
+                type="button"
+                onClick={installApp}
+                className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[13px] font-medium text-cyan-200 transition hover:bg-cyan-400/15"
+              >
+                <Smartphone size={15} /> Install app
+              </button>
+            )}
             {status === 'authenticated' && session?.user && (
               <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2">
                 <ProfileAvatar
@@ -2031,6 +2172,10 @@ export default function ChatPage() {
               <p className="mt-2 max-w-sm text-[14px] leading-6 text-slate-400">
                 Ask anything — I stream answers in real time with clean
                 formatting, lists and code.
+              </p>
+              <p className="mt-1.5 max-w-sm text-[12.5px] leading-6 text-slate-500">
+                Tip: type <span className="font-mono text-slate-300">/draw</span> followed
+                by a description to generate an image.
               </p>
               <div className="mt-6 grid w-full gap-2">
                 {SUGGESTIONS.map((s) => (
@@ -2209,7 +2354,7 @@ export default function ChatPage() {
                 );
               })}
 
-              {isLoading &&
+              {(isLoading || generatingImage) &&
                 messages[messages.length - 1]?.role === 'user' && (
                   <div className="flex gap-2.5">
                     <div className="h-8 w-8 shrink-0">
@@ -2372,10 +2517,13 @@ export default function ChatPage() {
               )}
 
               <div className="ml-auto flex items-center gap-1.5">
-                {isLoading ? (
+                {isLoading || generatingImage ? (
                   <button
                     type="button"
-                    onClick={() => stop()}
+                    onClick={() => {
+                      stop();
+                      imageAbort.current?.abort();
+                    }}
                     className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/15"
                   >
                     <Square size={14} /> Stop
