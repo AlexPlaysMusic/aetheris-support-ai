@@ -943,8 +943,6 @@ export default function ChatPage() {
   const [sharedId, setSharedId] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [processingFiles, setProcessingFiles] = useState(false);
-  const [generatingImage, setGeneratingImage] = useState(false);
-  const imageAbort = useRef<AbortController | null>(null);
   const [canInstall, setCanInstall] = useState(false);
   const installEvt = useRef<{
     prompt: () => Promise<void>;
@@ -1482,72 +1480,39 @@ export default function ChatPage() {
       setOutOfCredits(true);
       return;
     }
-    lastSpent.current = CREDIT_COST_IMAGE_GEN;
+    // NOTE: image costs live in the client ledger only — generations load
+    // straight from the free image API (no server round-trip to meter, and
+    // no cost to us), so there is nothing for the server to enforce here.
+    lastSpent.current = 0;
     setCreditsLeft(remaining);
     setOutOfCredits(false);
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-    const userMsg: Message = {
-      id: newId(),
-      role: 'user',
-      content: prompt,
-      createdAt: new Date()
-    };
-    setMessages((prev) => [...prev, userMsg]);
-
-    const controller = new AbortController();
-    imageAbort.current = controller;
-    setGeneratingImage(true);
-    void fetch('/api/image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-      signal: controller.signal
-    })
-      .then(async (res) => {
-        const data = (await res.json().catch(() => null)) as Record<
-          string,
-          unknown
-        > | null;
-        if (!res.ok || !data || typeof data['image'] !== 'string') {
-          throw new Error(
-            (data && typeof data['error'] === 'string' && data['error']) ||
-              (data && typeof data['message'] === 'string' && data['message']) ||
-              'Image generation failed.'
-          );
-        }
-        const assistantMsg: Message = {
-          id: newId(),
-          role: 'assistant',
-          content: `![Generated image: ${prompt.slice(0, 120)}](${data['image'] as string})`,
-          createdAt: new Date()
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-        resyncServerCredits();
-      })
-      .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          // Cancelled: pull the optimistic message back out.
-          setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
-        } else {
-          showAttachError(
-            err instanceof Error ? err.message : 'Image generation failed.'
-          );
-        }
-        lastSpent.current = 0;
-        setCreditsLeft(refundCredits(creditId, CREDIT_COST_IMAGE_GEN));
-      })
-      .finally(() => {
-        setGeneratingImage(false);
-        imageAbort.current = null;
-      });
+    // Free photorealistic generation (no key, no quota): the picture URL
+    // itself is the request — the browser renders it on load.
+    const seed = Math.floor(Math.random() * 1000000);
+    const imageUrl =
+      'https://image.pollinations.ai/prompt/' +
+      encodeURIComponent(prompt.slice(0, 500)) +
+      `?width=1024&height=1024&seed=${seed}&nologo=true&model=flux&private=true`;
+    const now = new Date();
+    setMessages((prev) => [
+      ...prev,
+      { id: newId(), role: 'user', content: prompt, createdAt: now },
+      {
+        id: newId(),
+        role: 'assistant',
+        content: `![Generated image: ${prompt.slice(0, 120)}](${imageUrl})`,
+        createdAt: now
+      }
+    ]);
   };
 
   const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const text = input.trim();
-    if ((!text && attachments.length === 0) || isLoading || generatingImage) return;
+    if ((!text && attachments.length === 0) || isLoading) return;
 
     // Slash command: "/draw a sunset" skips chat and renders a picture.
     const drawMatch = /^\/(draw|image)\s+([\s\S]+)/.exec(text);
@@ -2354,7 +2319,7 @@ export default function ChatPage() {
                 );
               })}
 
-              {(isLoading || generatingImage) &&
+              {isLoading &&
                 messages[messages.length - 1]?.role === 'user' && (
                   <div className="flex gap-2.5">
                     <div className="h-8 w-8 shrink-0">
@@ -2517,13 +2482,10 @@ export default function ChatPage() {
               )}
 
               <div className="ml-auto flex items-center gap-1.5">
-                {isLoading || generatingImage ? (
+                {isLoading ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      stop();
-                      imageAbort.current?.abort();
-                    }}
+                    onClick={() => stop()}
                     className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/15"
                   >
                     <Square size={14} /> Stop

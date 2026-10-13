@@ -71,9 +71,10 @@ export default function PrivacyPage() {
 
         <Section title="Messages and files">
           <p>
-            Your prompts, photos, and attached files are sent to our AI provider
-            (Google Gemini) to generate replies, and are processed under their
-            policies. Don&apos;t send anything you wouldn&apos;t want processed —
+            Your prompts, photos, and attached files are sent to our AI providers
+            (Google Gemini for chat, Pollinations for generated images) to
+            generate replies, and are processed under their policies.
+            Don&apos;t send anything you wouldn&apos;t want processed —
             especially passwords, ID documents, or other people&apos;s private data.
           </p>
         </Section>
