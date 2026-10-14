@@ -1168,37 +1168,19 @@ export default function ChatPage() {
     [creditId, selectedModel]
   );
 
-  /* load per-account history; fold guest chats into the account on sign-in */
+  /* load per-account history (guests keep nothing — memory only) */
   useEffect(() => {
-    const prevKey = prevStoreKeyRef.current;
     prevStoreKeyRef.current = storeKey;
-    const current = loadThreads(storeKey);
-    if (prevKey === GUEST_KEY && storeKey !== GUEST_KEY) {
-      // Just signed in: merge any guest chats into this account.
-      const guestThreads = loadThreads(GUEST_KEY);
-      const seen = new Set(current.map((t) => t.id));
-      const merged = [...current, ...guestThreads.filter((t) => !seen.has(t.id))]
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 30);
-      persistThreads(storeKey, merged);
-      setThreads(merged);
-      try {
-        localStorage.removeItem(GUEST_KEY);
-      } catch {
-        /* ignore */
-      }
-    } else {
-      setThreads(current);
-    }
+    setThreads(isGuest ? [] : loadThreads(storeKey));
     setMessages([]);
     setChatId(newId());
     setSearchQuery('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeKey]);
 
-  /* autosave current thread */
+  /* autosave current thread (signed-in accounts only) */
   useEffect(() => {
-    if (messages.length === 0) return;
+    if (messages.length === 0 || isGuest) return;
     setThreads((prev) => {
       const title = threadTitleFrom(messages);
       const existing = prev.find((t) => t.id === chatId);
@@ -2190,9 +2172,19 @@ export default function ChatPage() {
           <div className="flex-1 overflow-y-auto px-2 pb-2">
             {threads.length === 0 ? (
               <p className="px-3 py-6 text-center text-[13px] text-slate-500">
-                No conversations yet.
-                <br />
-                Start a new chat below.
+                {isGuest ? (
+                  <>
+                    History is off for guests.
+                    <br />
+                    Sign in to keep your chats.
+                  </>
+                ) : (
+                  <>
+                    No conversations yet.
+                    <br />
+                    Start a new chat below.
+                  </>
+                )}
               </p>
             ) : filteredThreads.length === 0 ? (
               <p className="px-3 py-6 text-center text-[13px] text-slate-500">
