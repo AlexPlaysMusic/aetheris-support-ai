@@ -853,14 +853,14 @@ function ModalShell({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+      className="animate-fade fixed inset-0 z-[60] flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={title}
     >
       <div
-        className="w-full max-w-sm overflow-hidden rounded-2xl border border-white/10 bg-surface shadow-2xl shadow-black/60"
+        className="animate-pop w-full max-w-sm overflow-hidden rounded-2xl border border-white/10 bg-surface shadow-2xl shadow-black/60"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
@@ -1944,7 +1944,7 @@ export default function ChatPage() {
               {modelOpen && (
                 <div
                   role="listbox"
-                  className="absolute right-0 top-11 w-64 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
+                  className="animate-menu absolute right-0 top-11 w-64 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
                 >
                   {MODELS.map((m) => (
                     <button
@@ -2031,7 +2031,7 @@ export default function ChatPage() {
                 {accountOpen && (
                   <div
                     role="menu"
-                    className="absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
+                    className="animate-menu absolute right-0 top-10 z-50 w-52 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
                   >
                     <div className="border-b border-white/5 px-3.5 py-2.5">
                       <p className="truncate text-[13px] font-medium text-white">
@@ -2092,7 +2092,7 @@ export default function ChatPage() {
           />
         )}
         <aside
-          className={`fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-white/5 bg-surface transition-transform duration-200 ${
+          className={`fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-white/5 bg-surface transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
@@ -2121,7 +2121,7 @@ export default function ChatPage() {
                   startNewChat();
                 }
               }}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-3 py-2.5 text-sm font-semibold text-[#06121a] transition hover:bg-cyan-300"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-3 py-2.5 text-sm font-semibold text-[#06121a] transition hover:bg-cyan-300 active:scale-[0.98]"
             >
               <Plus size={16} strokeWidth={2.5} /> New Chat
             </button>
@@ -2357,7 +2357,7 @@ export default function ChatPage() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 pb-4 pt-4 sm:px-4">
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-              <div className="mb-4 scale-125">
+              <div className="animate-float mb-4 scale-125">
                 <AetherisLogo size={64} />
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-white">
@@ -2374,12 +2374,13 @@ export default function ChatPage() {
                 by a description to generate an image.
               </p>
               <div className="mt-6 grid w-full gap-2">
-                {SUGGESTIONS.map((s) => (
+                {SUGGESTIONS.map((s, i) => (
                   <button
                     key={s}
                     type="button"
                     onClick={() => sendSuggestion(s)}
-                    className="rounded-xl border border-white/10 bg-surface/80 px-3.5 py-2.5 text-left text-[13px] text-slate-200 transition hover:border-white/25 hover:bg-surface"
+                    style={{ animationDelay: `${i * 70}ms` }}
+                    className="animate-rise rounded-xl border border-white/10 bg-surface/80 px-3.5 py-2.5 text-left text-[13px] text-slate-200 transition hover:border-white/25 hover:bg-surface active:scale-[0.99]"
                   >
                     <span className="mr-2 inline-block text-slate-500">
                       <ArrowRight size={13} className="inline" />
@@ -2409,7 +2410,7 @@ export default function ChatPage() {
                 return (
                   <div
                     key={key}
-                    className={`group flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}
+                    className={`animate-rise group flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}
                   >
                     <div className="mt-0.5 h-8 w-8 shrink-0">
                       {isUser ? (
@@ -2697,7 +2698,7 @@ export default function ChatPage() {
               <div
                 role="listbox"
                 aria-label="Commands"
-                className="absolute inset-x-2 bottom-full z-30 mb-2 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
+                className="animate-menu absolute inset-x-2 bottom-full z-30 mb-2 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
               >
                 {filteredSlash.map((c, i) => (
                   <button
@@ -2815,7 +2816,7 @@ export default function ChatPage() {
                   <button
                     type="button"
                     onClick={() => stop()}
-                    className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/15"
+                    className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/15 active:scale-95"
                   >
                     <Square size={14} /> Stop
                   </button>
@@ -2826,7 +2827,7 @@ export default function ChatPage() {
                     aria-label="Send message"
                     className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[13px] font-semibold transition ${
                       canSend
-                        ? 'bg-cyan-400 text-[#06121a] hover:bg-cyan-300'
+                        ? 'bg-cyan-400 text-[#06121a] hover:bg-cyan-300 active:scale-95'
                         : 'cursor-not-allowed bg-white/5 text-slate-500'
                     }`}
                   >
@@ -2895,7 +2896,7 @@ export default function ChatPage() {
               <button
                 type="submit"
                 disabled={waitlistStatus === 'sending'}
-                className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#00F2FE] px-3 py-2.5 text-sm font-semibold text-[#06121a] shadow-glow transition hover:brightness-110 disabled:opacity-60"
+                className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#00F2FE] px-3 py-2.5 text-sm font-semibold text-[#06121a] shadow-glow transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
               >
                 {waitlistStatus === 'sending' ? 'Joining…' : 'Join Pro Waitlist'}
               </button>

@@ -83,6 +83,94 @@ body {
   animation: none;
 }
 
+/* ---------- motion design (entrances, menus, dialogs) ---------- */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.animate-rise {
+  animation: rise-in 0.25s ease-out both;
+}
+.animate-pop {
+  animation: pop-in 0.22s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+}
+.animate-fade {
+  animation: fade-in 0.18s ease-out both;
+}
+.animate-menu {
+  animation: menu-in 0.16s ease-out both;
+}
+.animate-float {
+  animation: float-soft 5s ease-in-out infinite;
+}
+
+/* Honor reduced motion: user toggle and OS setting both kill animation */
+.reduce-motion .animate-rise,
+.reduce-motion .animate-pop,
+.reduce-motion .animate-fade,
+.reduce-motion .animate-menu,
+.reduce-motion .animate-float {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-pop,
+  .animate-fade,
+  .animate-menu,
+  .animate-float {
+    animation: none !important;
+  }
+}
+
 /* Textarea reset */
 textarea {
   field-sizing: content;
