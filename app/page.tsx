@@ -1030,6 +1030,7 @@ export default function ChatPage() {
   const [sharedId, setSharedId] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [processingFiles, setProcessingFiles] = useState(false);
+  const [checkingDraw, setCheckingDraw] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
   const installEvt = useRef<{
     prompt: () => Promise<void>;
@@ -1663,39 +1664,64 @@ export default function ChatPage() {
       showAttachError("That kind of image isn't allowed here. Try something else.");
       return;
     }
-    const remaining = spendCredits(creditId, CREDIT_COST_IMAGE_GEN);
-    if (remaining === null) {
-      lastSpent.current = 0;
-      setOutOfCredits(true);
-      return;
-    }
-    // NOTE: image costs live in the client ledger only — generations load
-    // straight from the free image API (no server round-trip to meter, and
-    // no cost to us), so there is nothing for the server to enforce here.
-    lastSpent.current = 0;
-    setCreditsLeft(remaining);
-    setOutOfCredits(false);
-    setInput('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    // Semantic safety gate: understands misspellings, slang, euphemisms.
+    // Fail closed — a blocked or failed check never generates.
+    setCheckingDraw(true);
+    void fetch('/api/moderate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt.slice(0, 500) })
+    })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        return data !== null && data['ok'] === true;
+      })
+      .catch(() => false)
+      .then((allowed) => {
+        setCheckingDraw(false);
+        if (!allowed) {
+          showAttachError(
+            "That kind of image isn't allowed here. Try something else."
+          );
+          return;
+        }
+        const remaining = spendCredits(creditId, CREDIT_COST_IMAGE_GEN);
+        if (remaining === null) {
+          lastSpent.current = 0;
+          setOutOfCredits(true);
+          return;
+        }
+        // NOTE: image costs live in the client ledger only — generations load
+        // straight from the free image API (no server round-trip to meter, and
+        // no cost to us), so there is nothing for the server to enforce here.
+        lastSpent.current = 0;
+        setCreditsLeft(remaining);
+        setOutOfCredits(false);
+        setInput('');
+        if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-    // Free photorealistic generation (no key, no quota): the picture URL
-    // itself is the request — the browser renders it on load.
-    const seed = Math.floor(Math.random() * 1000000);
-    const imageUrl =
-      'https://image.pollinations.ai/prompt/' +
-      encodeURIComponent(prompt.slice(0, 500)) +
-      `?width=1024&height=1024&seed=${seed}&nologo=true&model=flux&private=true`;
-    const now = new Date();
-    setMessages((prev) => [
-      ...prev,
-      { id: newId(), role: 'user', content: prompt, createdAt: now },
-      {
-        id: newId(),
-        role: 'assistant',
-        content: `![Generated image: ${prompt.slice(0, 120)}](${imageUrl})`,
-        createdAt: now
-      }
-    ]);
+        // Free photorealistic generation (no key, no quota): the picture URL
+        // itself is the request — the browser renders it on load.
+        const seed = Math.floor(Math.random() * 1000000);
+        const imageUrl =
+          'https://image.pollinations.ai/prompt/' +
+          encodeURIComponent(prompt.slice(0, 500)) +
+          `?width=1024&height=1024&seed=${seed}&nologo=true&model=flux&private=true`;
+        const now = new Date();
+        setMessages((prev) => [
+          ...prev,
+          { id: newId(), role: 'user', content: prompt, createdAt: now },
+          {
+            id: newId(),
+            role: 'assistant',
+            content: `![Generated image: ${prompt.slice(0, 120)}](${imageUrl})`,
+            createdAt: now
+          }
+        ]);
+      });
   };
 
   const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -2595,6 +2621,12 @@ export default function ChatPage() {
             <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-surface px-3.5 py-2.5 text-[12.5px] text-slate-300">
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/15 border-t-cyan-300" />
               Adding your files…
+            </div>
+          )}
+          {checkingDraw && (
+            <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-surface px-3.5 py-2.5 text-[12.5px] text-slate-300">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/15 border-t-cyan-300" />
+              Checking that prompt…
             </div>
           )}
           {outOfCredits && (
