@@ -4,9 +4,54 @@ import { Resend } from 'resend';
 import { limitRequest } from '@/lib/rate-limit';
 
 const SUPPORT_FROM = 'Aetheris Support <support@aetherisai.me>';
-const SUPPORT_MODEL = process.env.SUPPORT_MODEL ?? 'gemini-3.8-flash';
+const SUPPORT_MODELS = [
+  process.env.SUPPORT_MODEL ?? 'gemini-3.8-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash'
+];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isCapacityError(err: unknown): boolean {
+  const text = err instanceof Error ? `${err.message} ${JSON.stringify(err)}` : String(err);
+  return /503|429|overload|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|capacity|timeout|timed out/i.test(
+    text
+  );
+}
+
+/** Draft a support reply, falling over to backup models on capacity errors. */
+async function draftReply(apiKey: string, message: string): Promise<string> {
+  let lastErr: unknown = null;
+  for (const model of [...new Set(SUPPORT_MODELS)]) {
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const aiResponse = await ai.models.generateContent({
+        model,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `You are the official AI support assistant for Aetheris, a high-performance AI chat web application.
+              Write a polite, helpful, and concise response to this user support message: "${message.slice(0, 2000)}".
+              Keep the reply strictly professional and never sexual or explicit.
+              Sign off from "Aetheris AI Support".`
+              }
+            ]
+          }
+        ]
+      });
+      const text = aiResponse.text?.trim() ?? '';
+      if (text !== '') return text;
+      lastErr = new Error('Empty reply from the support AI.');
+    } catch (err) {
+      lastErr = err;
+      // Only capacity blips are worth retrying on the next model.
+      if (!isCapacityError(err)) throw err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Support AI unavailable.');
+}
 
 /**
  * AI support inbox: Gemini drafts a helpful reply to the user's message,
@@ -53,27 +98,7 @@ export async function POST(req: Request) {
     }
 
     // 1. Have Gemini generate a helpful support response.
-    const ai = new GoogleGenAI({ apiKey });
-    const aiResponse = await ai.models.generateContent({
-      model: SUPPORT_MODEL,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `You are the official AI support assistant for Aetheris, a high-performance AI chat web application.
-              Write a polite, helpful, and concise response to this user support message: "${message.slice(0, 2000)}".
-              Keep the reply strictly professional and never sexual or explicit.
-              Sign off from "Aetheris AI Support".`
-            }
-          ]
-        }
-      ]
-    });
-
-    const replyText =
-      aiResponse.text ||
-      'Thank you for reaching out to Aetheris Support. We have received your message and will get back to you shortly.';
+    const replyText = await draftReply(apiKey, message);
 
     // 2. Send the AI-generated response via Resend from our domain.
     const resend = new Resend(process.env.RESEND_API_KEY);
@@ -110,6 +135,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, reply: replyText });
   } catch (err) {
     console.error('[aetheris/support] error:', err);
+    if (isCapacityError(err)) {
+      return NextResponse.json(
+        {
+          error:
+            'Support AI is at capacity right now — try again in a minute.'
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Support request failed.' },
       { status: 500 }
