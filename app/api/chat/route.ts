@@ -184,6 +184,19 @@ export async function POST(req: Request) {
     }
     spent = cost;
 
+    // Personalization from the client (length-capped, temperature-clamped).
+    const rawExtra = typeof body?.systemExtra === 'string' ? body.systemExtra : '';
+    const systemExtra = rawExtra.trim().slice(0, 1000);
+    const rawTemp = body?.temperature;
+    const temperature =
+      typeof rawTemp === 'number' && Number.isFinite(rawTemp)
+        ? Math.min(1, Math.max(0, rawTemp))
+        : 0.7;
+    const system =
+      systemExtra !== ''
+        ? `${SYSTEM_PROMPT}\n\nUser preferences (always follow these):\n${systemExtra}`
+        : SYSTEM_PROMPT;
+
     const provider = (process.env.LLM_PROVIDER ?? 'demo').toLowerCase();
     const modelMessages = withAttachments(messages);
 
@@ -191,9 +204,9 @@ export async function POST(req: Request) {
     if (provider === 'demo') {
       const result = streamText({
         model: createDemoChatModel(resolveDemoModel(modelSelect)),
-        system: SYSTEM_PROMPT,
+        system,
         messages: modelMessages,
-        temperature: 0.7
+        temperature,
       });
       return result.toDataStreamResponse();
     }
@@ -211,9 +224,9 @@ export async function POST(req: Request) {
       }
       const result = streamText({
         model: google(resolveGeminiModel(modelSelect)),
-        system: SYSTEM_PROMPT,
+        system,
         messages: modelMessages,
-        temperature: 0.7
+        temperature,
       });
       return result.toDataStreamResponse();
     }
@@ -231,9 +244,9 @@ export async function POST(req: Request) {
       }
       const result = streamText({
         model: openai(resolveOpenAiModel(modelSelect)),
-        system: SYSTEM_PROMPT,
+        system,
         messages: modelMessages,
-        temperature: 0.7
+        temperature,
       });
       return result.toDataStreamResponse();
     }

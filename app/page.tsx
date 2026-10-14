@@ -18,6 +18,7 @@ import {
   spendCredits
 } from '@/lib/credits';
 import {
+  ArrowRight,
   Check,
   ChevronDown,
   Coins,
@@ -31,15 +32,15 @@ import {
   Mic,
   Paperclip,
   Pencil,
+  Volume2,
   Download,
   Plus,
   Smartphone,
   RefreshCw,
   Search,
   Send,
-  Share2,
   Settings,
-  Sparkles,
+  Share2,
   Square,
   ThumbsDown,
   ThumbsUp,
@@ -268,6 +269,41 @@ function messageFiles(m: Message): AttachedFile[] {
   return files;
 }
 
+/** Text preference persisted to localStorage (hydrated client-side only). */
+function useLocalString(key: string, initial: string): [string, (v: string) => void] {
+  const [value, setValue] = useState(initial);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw !== null) setValue(raw);
+    } catch {
+      /* private mode — ignore */
+    }
+  }, [key]);
+  const set = useCallback((v: string) => {
+    setValue(v);
+    try {
+      localStorage.setItem(key, v);
+    } catch {
+      /* ignore */
+    }
+  }, [key]);
+  return [value, set];
+}
+
+/** Strip markdown down to speakable plain text for read-aloud. */
+function speakable(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, ' Code omitted. ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' Image. ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/[*_#>~|-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 2000);
+}
+
 /** Boolean preference persisted to localStorage (hydrated client-side only). */
 function useLocalPref(key: string, initial: boolean): [boolean, () => void] {
   const [value, setValue] = useState(initial);
@@ -413,11 +449,17 @@ const MODELS: {
 ];
 
 const SUGGESTIONS = [
-  'Explain quantum computing in simple terms',
-  'Write a haiku about a glowing dome at night',
-  'Give me a 3-day travel plan for Kyoto',
-  'Debug this JS: `const x = [1,2,3].map(n => n * 2)` — what next?'
+  'Plan a 3-day Kyoto trip under $1,500',
+  'Explain this code: arr.map(x => x * 2).filter(x => x > 2)',
+  'Draft a firm but polite refund email',
+  'Teach me one photography fundamental in 5 minutes'
 ];
+
+const RESPONSE_STYLES = [
+  { id: 'precise', label: 'Precise', temperature: 0.3 },
+  { id: 'balanced', label: 'Balanced', temperature: 0.7 },
+  { id: 'creative', label: 'Creative', temperature: 1.0 }
+] as const;
 
 const STORAGE_KEY_BASE = 'aetheris-threads-v1';
 const GUEST_KEY = `${STORAGE_KEY_BASE}:guest`;
@@ -856,7 +898,7 @@ function ModalShell({
             <X size={18} />
           </button>
         </div>
-        <div className="px-4 py-4">{children}</div>
+        <div className="max-h-[70dvh] overflow-y-auto px-4 py-4">{children}</div>
       </div>
     </div>
   );
@@ -992,7 +1034,24 @@ export default function ChatPage() {
   const userId = session?.user?.id || session?.user?.email || null;
   const storeKey = storageKeyFor(userId);
   const creditId = useMemo(() => creditIdentity(userId), [userId]);
+  const [instructions, setInstructions] = useLocalString(
+    `aetheris-instructions:${userId ?? 'guest'}`,
+    ''
+  );
+  const [styleId, setStyle] = useLocalString('aetheris-style', 'balanced');
+  const styleTemp =
+    RESPONSE_STYLES.find((s) => s.id === styleId)?.temperature ?? 0.7;
+  const [daypart, setDaypart] = useState('Hello');
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const isGuest = status !== 'authenticated';
+
+  /* time-aware greeting (computed on the client so prerender stays neutral) */
+  useEffect(() => {
+    const h = new Date().getHours();
+    setDaypart(
+      h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
+    );
+  }, []);
   const prevStoreKeyRef = useRef(storeKey);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1038,7 +1097,12 @@ export default function ChatPage() {
   } = useChat({
     api: '/api/chat',
     id: chatId,
-    body: { model: selectedModel, userId },
+    body: {
+      model: selectedModel,
+      userId,
+      systemExtra: instructions,
+      temperature: styleTemp
+    },
     onFinish: () => {
       resyncServerCredits();
     },
@@ -1262,17 +1326,66 @@ export default function ChatPage() {
     };
   }, []);
 
+  const stopSpeaking = () => {
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {
+      /* ignore */
+    }
+    setSpeakingId(null);
+  };
+
+  const toggleSpeak = (id: string, text: string) => {
+    if (speakingId === id) {
+      stopSpeaking();
+      return;
+    }
+    try {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+      const synth = window.speechSynthesis;
+      synth.cancel();
+      const said = speakable(text);
+      if (said === '') return;
+      const utter = new SpeechSynthesisUtterance(said);
+      utter.onend = () =>
+        setSpeakingId((current) => (current === id ? null : current));
+      utter.onerror = () =>
+        setSpeakingId((current) => (current === id ? null : current));
+      setSpeakingId(id);
+      synth.speak(utter);
+    } catch {
+      setSpeakingId(null);
+    }
+  };
+
   const startNewChat = useCallback(() => {
     setMessages([]);
     setChatId(newId());
     setAttachments([]);
     setSidebarOpen(false);
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    } catch {
+      /* ignore */
+    }
+    setSpeakingId(null);
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [setMessages]);
 
   const openThread = useCallback(
     (t: Thread) => {
-      reportClient('open-thread', t.id, t.title);
+      try {
+        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+        }
+      } catch {
+        /* ignore */
+      }
+      setSpeakingId(null);
       setChatId(t.id);
       setMessages(t.messages);
       // Pro is locked: old threads saved on Pro fall back to Basic.
@@ -2132,11 +2245,13 @@ export default function ChatPage() {
                 <AetherisLogo size={64} />
               </div>
               <h1 className="text-2xl font-bold tracking-tight text-white">
-                Hello, I&apos;m Aetheris
+                {daypart}
+                {session?.user?.name
+                  ? `, ${session.user.name.split(' ')[0]}`
+                  : ''}
               </h1>
               <p className="mt-2 max-w-sm text-[14px] leading-6 text-slate-400">
-                Ask anything — I stream answers in real time with clean
-                formatting, lists and code.
+                What are we working on today?
               </p>
               <p className="mt-1.5 max-w-sm text-[12.5px] leading-6 text-slate-500">
                 Tip: type <span className="font-mono text-slate-300">/draw</span> followed
@@ -2150,15 +2265,15 @@ export default function ChatPage() {
                     onClick={() => sendSuggestion(s)}
                     className="rounded-xl border border-white/10 bg-surface/80 px-3.5 py-2.5 text-left text-[13px] text-slate-200 transition hover:border-white/25 hover:bg-surface"
                   >
-                    <span className="mr-2 inline-block text-cyan-300">
-                      <Sparkles size={13} className="inline" />
+                    <span className="mr-2 inline-block text-slate-500">
+                      <ArrowRight size={13} className="inline" />
                     </span>
                     {s}
                   </button>
                 ))}
               </div>
               <p className="mt-5 text-[11px] text-slate-600">
-                {activeModel.label} · Streaming on
+                Using {activeModel.label}
               </p>
             </div>
           ) : (
@@ -2270,6 +2385,28 @@ export default function ChatPage() {
                               className="rounded-md p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200"
                             >
                               <RefreshCw size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleSpeak(key, bodyText)}
+                              aria-label={
+                                speakingId === key ? 'Stop reading aloud' : 'Read aloud'
+                              }
+                              aria-pressed={speakingId === key}
+                              title={
+                                speakingId === key ? 'Stop reading aloud' : 'Read aloud'
+                              }
+                              className={`rounded-md p-1.5 transition hover:bg-white/5 ${
+                                speakingId === key
+                                  ? 'text-cyan-300'
+                                  : 'text-slate-500 hover:text-slate-200'
+                              }`}
+                            >
+                              {speakingId === key ? (
+                                <Square size={14} />
+                              ) : (
+                                <Volume2 size={14} />
+                              )}
                             </button>
                             <button
                               type="button"
@@ -2691,6 +2828,41 @@ export default function ChatPage() {
               checked={reduceMotion}
               onToggle={toggleReduceMotion}
             />
+            <div className="mt-2 border-t border-white/5 px-1 pt-3">
+              <p className="text-[13.5px] font-medium text-slate-100">
+                Personalization
+              </p>
+              <p className="mb-2 text-[11.5px] text-slate-500">
+                How should Aetheris talk to you? Saved on this device
+                {isGuest ? ' (sign in to keep it per account)' : ''}.
+              </p>
+              <textarea
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value.slice(0, 1000))}
+                rows={3}
+                maxLength={1000}
+                placeholder="e.g. Keep answers short. I'm learning Spanish — correct my mistakes."
+                aria-label="Custom instructions for Aetheris"
+                className="w-full resize-none rounded-xl border border-white/10 bg-abyss px-3 py-2.5 text-[13.5px] leading-6 text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none"
+              />
+              <div className="mt-2 grid grid-cols-3 gap-1.5" role="group" aria-label="Response style">
+                {RESPONSE_STYLES.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setStyle(s.id)}
+                    aria-pressed={styleId === s.id}
+                    className={`rounded-lg border px-2 py-1.5 text-[12.5px] font-medium transition ${
+                      styleId === s.id
+                        ? 'border-cyan-300/50 bg-cyan-400/10 text-cyan-100'
+                        : 'border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           <p className="mt-3 border-t border-white/5 pt-3 text-[11px] leading-5 text-slate-500">
             More settings (account, notifications, data controls) are coming soon.{' '}
