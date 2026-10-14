@@ -3,7 +3,7 @@ import './globals.css';
 import Providers from './providers';
 
 export const metadata: Metadata = {
-  title: 'Aetheris AI | Chat',
+  title: 'Aetheris Computer | Chat',
   description:
     'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and model switching.',
   manifest: '/manifest.json',
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     title: 'Aetheris'
   },
   openGraph: {
-    title: 'Aetheris AI | Chat',
+    title: 'Aetheris Computer | Chat',
     description:
       'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and photo understanding.',
     url: '/',
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary',
-    title: 'Aetheris AI | Chat',
+    title: 'Aetheris Computer | Chat',
     description:
       'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and photo understanding.'
   }
