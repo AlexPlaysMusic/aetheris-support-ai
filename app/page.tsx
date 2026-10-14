@@ -506,6 +506,26 @@ const RESPONSE_STYLES = [
   { id: 'creative', label: 'Creative', temperature: 1.0 }
 ] as const;
 
+/** Slash commands: typed as `/name args`, picked from the popup menu. */
+const SLASH_COMMANDS: { name: string; hint: string; description: string }[] = [
+  { name: 'draw', hint: '<description>', description: 'Generate an image (10 credits)' },
+  { name: 'image', hint: '<description>', description: 'Same as /draw' },
+  { name: 'help', hint: '', description: 'Show this list' },
+  { name: 'new', hint: '', description: 'Start a fresh chat' },
+  { name: 'export', hint: '', description: 'Download this chat as Markdown' },
+  { name: 'retry', hint: '', description: 'Regenerate the last reply' }
+];
+
+function slashHelpText(): string {
+  return [
+    '**Commands**',
+    '',
+    ...SLASH_COMMANDS.map(
+      (c) => `- \`/${c.name}${c.hint !== '' ? ` ${c.hint}` : ''}\` — ${c.description}`
+    )
+  ].join('\n');
+}
+
 const STORAGE_KEY_BASE = 'aetheris-threads-v1';
 const GUEST_KEY = `${STORAGE_KEY_BASE}:guest`;
 
@@ -1034,6 +1054,8 @@ export default function ChatPage() {
   const [attachError, setAttachError] = useState<string | null>(null);
   const [processingFiles, setProcessingFiles] = useState(false);
   const [checkingDraw, setCheckingDraw] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashHidden, setSlashHidden] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
   const installEvt = useRef<{
     prompt: () => Promise<void>;
@@ -1727,6 +1749,81 @@ export default function ChatPage() {
       });
   };
 
+  /** Commands the slash menu filters as you type `/…`. */
+  const filteredSlash = useMemo(() => {
+    if (!input.startsWith('/') || slashHidden || isLoading) return [];
+    const match = /^\/([a-z]*)$/.exec(input);
+    if (!match) return [];
+    const q = match[1].toLowerCase();
+    return SLASH_COMMANDS.filter((c) => c.name.startsWith(q));
+  }, [input, slashHidden, isLoading]);
+
+  const showSlashMenu = filteredSlash.length > 0;
+
+  const selectSlash = useCallback(
+    (name: string) => {
+      setInput(`/${name} `);
+      setSlashHidden(true);
+      setSlashIndex(0);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [setInput]
+  );
+
+  /** Run a slash command. Returns true when the line was consumed. */
+  const runSlash = (name: string, arg: string): boolean => {
+    switch (name) {
+      case 'draw':
+      case 'image': {
+        if (arg === '') {
+          showAttachError('Describe the image after /draw — e.g. /draw a sunset.');
+          return true;
+        }
+        generateImage(arg);
+        return true;
+      }
+      case 'help': {
+        const now = new Date();
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: newId(),
+            role: 'assistant',
+            content: slashHelpText(),
+            createdAt: now
+          }
+        ]);
+        return true;
+      }
+      case 'new': {
+        startNewChat();
+        return true;
+      }
+      case 'export': {
+        if (messages.length === 0) {
+          showAttachError('Nothing to export yet. Send a message first.');
+          return true;
+        }
+        exportChat();
+        return true;
+      }
+      case 'retry': {
+        if (messages.length === 0) {
+          showAttachError('Nothing to regenerate yet.');
+          return true;
+        }
+        autoRetried.current = false;
+        setSendError(null);
+        reload();
+        return true;
+      }
+      default: {
+        showAttachError(`Unknown command "/${name}". Try /help.`);
+        return true;
+      }
+    }
+  };
+
   const onFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const text = input.trim();
@@ -1738,14 +1835,13 @@ export default function ChatPage() {
       retryTimer.current = null;
     }
 
-    // Slash command: "/draw a sunset" skips chat and renders a picture.
-    const drawMatch = /^\/(draw|image)\s+([\s\S]+)/.exec(text);
-    if (drawMatch && attachments.length === 0) {
-      const prompt = drawMatch[2].trim();
-      if (prompt !== '') {
-        generateImage(prompt);
-        return;
-      }
+    // Slash commands run locally typed or picked from the popup menu.
+    const slashMatch = /^\/([a-z]+)(?:\s+([\s\S]*))?$/.exec(text);
+    if (slashMatch && attachments.length === 0) {
+      runSlash(slashMatch[1].toLowerCase(), (slashMatch[2] ?? '').trim());
+      setInput('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      return;
     }
 
     if (
@@ -2692,13 +2788,79 @@ export default function ChatPage() {
 
           <form
             onSubmit={onFormSubmit}
-            className="rounded-2xl border border-white/10 bg-surface p-2 focus-within:border-white/25"
+            className="relative rounded-2xl border border-white/10 bg-surface p-2 focus-within:border-white/25"
           >
+            {showSlashMenu && (
+              <div
+                role="listbox"
+                aria-label="Commands"
+                className="absolute inset-x-2 bottom-full z-30 mb-2 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
+              >
+                {filteredSlash.map((c, i) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    role="option"
+                    aria-selected={i === slashIndex}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectSlash(c.name);
+                    }}
+                    onMouseEnter={() => setSlashIndex(i)}
+                    className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left transition ${
+                      i === slashIndex ? 'bg-cyan-400/10' : 'hover:bg-white/5'
+                    }`}
+                  >
+                    <span className="font-mono text-[13px] font-semibold text-cyan-200">
+                      /{c.name}
+                    </span>
+                    {c.hint !== '' && (
+                      <span className="font-mono text-[11px] text-slate-500">
+                        {c.hint}
+                      </span>
+                    )}
+                    <span className="ml-auto truncate text-[12px] text-slate-400">
+                      {c.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={handleInputChange}
+              onChange={(e) => {
+                handleInputChange(e);
+                setSlashHidden(false);
+                setSlashIndex(0);
+              }}
               onKeyDown={(e) => {
+                if (showSlashMenu) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSlashIndex((i) => (i + 1) % filteredSlash.length);
+                    return;
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSlashIndex(
+                      (i) => (i - 1 + filteredSlash.length) % filteredSlash.length
+                    );
+                    return;
+                  }
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault();
+                    const picked =
+                      filteredSlash[slashIndex] ?? filteredSlash[0];
+                    if (picked) selectSlash(picked.name);
+                    return;
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setSlashHidden(true);
+                    return;
+                  }
+                }
                 if (e.key === 'Enter' && !e.shiftKey && enterToSend) {
                   e.preventDefault();
                   (e.target as HTMLTextAreaElement).form?.requestSubmit();
