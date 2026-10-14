@@ -277,6 +277,15 @@ export async function POST(req: Request) {
     console.error('[aetheris/chat] error:', err);
     const message =
       err instanceof Error ? err.message : 'Failed to generate a response.';
+    if (/429|quota|RESOURCE_EXHAUSTED|rate.?limit|overload/i.test(message)) {
+      return Response.json(
+        {
+          error: 'RATE_LIMITED',
+          message: 'The AI is at capacity right now. Please retry in a few seconds.'
+        },
+        { status: 429 }
+      );
+    }
     return Response.json(
       { error: `LLM request failed: ${message}` },
       { status: 500 }

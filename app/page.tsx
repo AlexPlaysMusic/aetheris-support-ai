@@ -329,6 +329,36 @@ function useLocalPref(key: string, initial: boolean): [boolean, () => void] {
   return [value, toggle];
 }
 
+/**
+ * Turn a useChat failure into a human message. Non-OK responses arrive
+ * with the server's JSON body as the error text, so parse that first.
+ */
+function describeSendError(error: Error): string {
+  let raw = error.message;
+  try {
+    const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
+    const inner =
+      typeof parsed['message'] === 'string' && parsed['message'] !== ''
+        ? (parsed['message'] as string)
+        : typeof parsed['error'] === 'string'
+          ? (parsed['error'] as string)
+          : '';
+    if (inner !== '') raw = inner;
+  } catch {
+    /* transport-level failure — raw message stands */
+  }
+  if (/OUT_OF_CREDITS/i.test(raw)) return 'Out of credits for today.';
+  if (
+    /429|quota|rate.?limit|RESOURCE_EXHAUSTED|busy|overload|503/i.test(raw)
+  ) {
+    return 'The AI is at capacity right now — retrying on its own. If it persists, wait a few seconds and hit Retry.';
+  }
+  if (/timeout|timed out|network|fetch|connection|500|502|504/i.test(raw)) {
+    return 'Lost the connection mid-reply — retrying on its own.';
+  }
+  return 'Something went wrong while streaming. Please try again.';
+}
+
 /** Format a message timestamp (Date live, ISO string after reload). */
 function formatTime(value: unknown): string | null {
   if (
@@ -978,7 +1008,10 @@ export default function ChatPage() {
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [creditsLeft, setCreditsLeft] = useState(CREDIT_DAILY_GUEST);
   const [outOfCredits, setOutOfCredits] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const lastSpent = useRef(0);
+  const autoRetried = useRef(false);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
@@ -1104,10 +1137,30 @@ export default function ChatPage() {
       temperature: styleTemp
     },
     onFinish: () => {
+      setSendError(null);
       resyncServerCredits();
     },
-    onError: () => {
+    onError: (err) => {
+      // Drop the dead empty assistant shell so a bare toolbar never lingers.
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === 'assistant') {
+          const text = typeof last.content === 'string' ? last.content.trim() : '';
+          if (text === '') return prev.slice(0, -1);
+        }
+        return prev;
+      });
+      setSendError(describeSendError(err));
       resyncServerCredits();
+      // One automatic retry for transient blips (rate limits, overloads,
+      // dropped connections) — but never for out-of-credits.
+      if (!autoRetried.current && !/OUT_OF_CREDITS/i.test(err.message)) {
+        autoRetried.current = true;
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          reload();
+        }, 2500);
+      }
     }
   });
 
@@ -1297,6 +1350,7 @@ export default function ChatPage() {
     return () => {
       if (msgCopyTimer.current) clearTimeout(msgCopyTimer.current);
       if (attachErrTimer.current) clearTimeout(attachErrTimer.current);
+      if (retryTimer.current) clearTimeout(retryTimer.current);
     };
   }, []);
 
@@ -1587,6 +1641,12 @@ export default function ChatPage() {
   };
 
   const generateImage = (prompt: string) => {
+    autoRetried.current = false;
+    setSendError(null);
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
     const remaining = spendCredits(creditId, CREDIT_COST_IMAGE_GEN);
     if (remaining === null) {
       lastSpent.current = 0;
@@ -1626,6 +1686,12 @@ export default function ChatPage() {
     e.preventDefault();
     const text = input.trim();
     if ((!text && attachments.length === 0) || isLoading) return;
+    autoRetried.current = false;
+    setSendError(null);
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
 
     // Slash command: "/draw a sunset" skips chat and renders a picture.
     const drawMatch = /^\/(draw|image)\s+([\s\S]+)/.exec(text);
@@ -1678,6 +1744,12 @@ export default function ChatPage() {
   const sendSuggestion = (s: string) => {
     if (isLoading) return;
     if (!chargeSend(0, 0)) return;
+    autoRetried.current = false;
+    setSendError(null);
+    if (retryTimer.current) {
+      clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
     void append({ role: 'user', content: s });
   };
 
@@ -2478,10 +2550,14 @@ export default function ChatPage() {
 
               {error && (
                 <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-3.5 py-3 text-[13px] text-red-200">
-                  Something went wrong while streaming. Please try again.
+                  {sendError ?? 'Something went wrong while streaming. Please try again.'}
                   <button
                     type="button"
-                    onClick={() => reload()}
+                    onClick={() => {
+                      autoRetried.current = false;
+                      setSendError(null);
+                      reload();
+                    }}
                     className="ml-2 font-semibold underline underline-offset-2 hover:text-red-100"
                   >
                     Retry
