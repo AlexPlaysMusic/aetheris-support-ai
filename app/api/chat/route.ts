@@ -26,7 +26,8 @@ Rules:
 - Use Markdown when it helps: **bold** for emphasis, bullet/numbered lists for steps, and fenced code blocks with language tags for code.
 - Keep answers focused and right-sized: short for small talk, thorough for complex questions.
 - If you don't know something, say so plainly and suggest what to try next.
-- When the user attaches photos, PDFs, or text files, answer from their actual content.`;
+- When the user attaches photos, PDFs, or text files, answer from their actual content.
+- Never produce sexual or explicit content, including erotica, nudes, or sexual descriptions of anyone. If asked, refuse briefly in one sentence and offer a different topic.`;
 
 type ModelSelect = 'aetheris-basic' | 'aetheris-pro';
 
@@ -45,6 +46,22 @@ function resolveGeminiModel(select: unknown): string {
   }
   return (process.env.GEMINI_BASIC_MODEL ?? 'gemini-3.1-flash-lite').trim() || 'gemini-3.1-flash-lite';
 }
+
+/**
+ * Locked-down content filters: sexually explicit and harassing content is
+ * blocked at medium severity and above (stricter than the API default).
+ * Everything else uses the provider default.
+ */
+const GEMINI_SAFETY_SETTINGS = [
+  {
+    category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT' as const,
+    threshold: 'BLOCK_MEDIUM_AND_ABOVE' as const
+  },
+  {
+    category: 'HARM_CATEGORY_HARASSMENT' as const,
+    threshold: 'BLOCK_MEDIUM_AND_ABOVE' as const
+  }
+];
 
 /**
  * Photo data URLs from a message's experimental_attachments.
@@ -223,7 +240,9 @@ export async function POST(req: Request) {
         );
       }
       const result = streamText({
-        model: google(resolveGeminiModel(modelSelect)),
+        model: google(resolveGeminiModel(modelSelect), {
+          safetySettings: GEMINI_SAFETY_SETTINGS
+        }),
         system,
         messages: modelMessages,
         temperature,

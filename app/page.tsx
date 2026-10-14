@@ -441,6 +441,18 @@ function buildShareLink(t: Thread): string | null {
   return `${window.location.origin}/share#${code}`;
 }
 
+/**
+ * First-line blocklist for image prompts (sexual/explicit content).
+ * Word-boundary matched so innocent words ("class", "title", "asset")
+ * never trip it. The image provider's own filters back this up.
+ */
+const NSFW_PROMPT_PATTERN =
+  /\b(nude|naked|nsfw|porn|pornographic|erotic|erotica|explicit|sexy|hentai|fetish|bdsm|orgasm|masturbat|incest|bestiality|rape|upskirt|lingerie|stripper|escort|onlyfans|playboy|boobs?|tits?|pussy|dick|cock|penis|vagina|clit|nipples?|areola|genital|pubic|intercourse|sodomy|blowjob|handjob|cumshot|orgy|prostitut|brothel|ass(?!et\b)|butt naked|cameltoe)\b/i;
+
+function isBlockedImagePrompt(prompt: string): boolean {
+  return NSFW_PROMPT_PATTERN.test(prompt);
+}
+
 /** Best-effort clipboard write with a legacy fallback. */
 async function copyText(text: string): Promise<void> {
   try {
@@ -1646,6 +1658,10 @@ export default function ChatPage() {
     if (retryTimer.current) {
       clearTimeout(retryTimer.current);
       retryTimer.current = null;
+    }
+    if (isBlockedImagePrompt(prompt)) {
+      showAttachError("That kind of image isn't allowed here. Try something else.");
+      return;
     }
     const remaining = spendCredits(creditId, CREDIT_COST_IMAGE_GEN);
     if (remaining === null) {

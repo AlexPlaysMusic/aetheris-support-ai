@@ -47,6 +47,10 @@ export default function TermsPage() {
               Don&apos;t use the service for anything illegal, to harm others, or
               to probe, overload, or reverse-engineer the service.
             </li>
+            <li>
+              No sexual content: don&apos;t request, upload, generate, or share
+              sexually explicit material. Accounts doing so will be removed.
+            </li>
             <li>One account per person. Don&apos;t share accounts or API access.</li>
           </ul>
         </Section>

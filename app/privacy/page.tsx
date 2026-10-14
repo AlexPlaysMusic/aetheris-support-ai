@@ -74,6 +74,7 @@ export default function PrivacyPage() {
             Your prompts, photos, and attached files are sent to our AI providers
             (Google Gemini for chat, Pollinations for generated images) to
             generate replies, and are processed under their policies.
+            Automated safety filters block sexual and explicit content.
             Don&apos;t send anything you wouldn&apos;t want processed —
             especially passwords, ID documents, or other people&apos;s private data.
           </p>

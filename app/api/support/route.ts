@@ -60,6 +60,7 @@ export async function POST(req: Request) {
             {
               text: `You are the official AI support assistant for Aetheris, a high-performance AI chat web application.
               Write a polite, helpful, and concise response to this user support message: "${message.slice(0, 2000)}".
+              Keep the reply strictly professional and never sexual or explicit.
               Sign off from "Aetheris AI Support".`
             }
           ]
