@@ -17,6 +17,8 @@ import {
   remainingCredits,
   spendCredits
 } from '@/lib/credits';
+import { isBlockedImagePrompt } from '@/lib/safety';
+import { buildShareLink, messageImages } from '@/lib/share';
 import {
   ArrowRight,
   Check,
@@ -179,42 +181,7 @@ function downscaleImage(
   });
 }
 
-/** Pull image URLs out of a chat message (file parts or attachments). */
-function messageImages(m: Message): string[] {
-  const urls: string[] = [];
-  if (m === null || typeof m !== 'object') return urls;
-  const withParts = m as unknown as { parts?: unknown };
-  if (Array.isArray(withParts.parts)) {
-    for (const part of withParts.parts) {
-      const p =
-        part !== null && typeof part === 'object'
-          ? (part as Record<string, unknown>)
-          : null;
-      if (
-        p?.type === 'file' &&
-        typeof p['mimeType'] === 'string' &&
-        (p['mimeType'] as string).startsWith('image/') &&
-        typeof p['data'] === 'string'
-      ) {
-        urls.push(p['data'] as string);
-      }
-    }
-  }
-  const withAtts = m as unknown as { experimental_attachments?: unknown };
-  if (Array.isArray(withAtts.experimental_attachments)) {
-    for (const item of withAtts.experimental_attachments) {
-      const a =
-        item !== null && typeof item === 'object'
-          ? (item as Record<string, unknown>)
-          : null;
-      if (typeof a?.url !== 'string') continue;
-      const ct = typeof a['contentType'] === 'string' ? (a['contentType'] as string) : '';
-      const url = a['url'] as string;
-      if (ct.startsWith('image/') || url.startsWith('data:image')) urls.push(url);
-    }
-  }
-  return [...new Set(urls)];
-}
+
 
 type AttachedFile = { name: string; contentType: string; url: string };
 
@@ -396,65 +363,9 @@ function reportClient(kind: string, message: string, extra?: string): void {
   }
 }
 
-const SHARE_SIZE_LIMIT = 150_000;
 
-/**
- * Build a shareable link embedding the chat in the URL hash (no server
- * storage needed). Photos are included when the link stays small enough;
- * oversized chats share as text only. Returns null when even that is too big.
- */
-function buildShareLink(t: Thread): string | null {
-  const slim: {
-    v: number;
-    title: string;
-    messages: { role: 'user' | 'assistant'; content: string; images: string[] }[];
-  } = {
-    v: 1,
-    title: t.title,
-    messages: t.messages
-      .filter((m) => m !== null && typeof m === 'object')
-      .map((m) => {
-        const record = m as unknown as Record<string, unknown>;
-        return {
-          role: record['role'] === 'user' ? ('user' as const) : ('assistant' as const),
-          content:
-            typeof record['content'] === 'string'
-              ? (record['content'] as string).slice(0, 6000)
-              : '',
-          images: messageImages(m as Message).slice(0, 4)
-        };
-      })
-      .filter((m) => m.content !== '' || m.images.length > 0)
-  };
-  const encode = (dropImages: boolean): string => {
-    if (dropImages) {
-      for (const m of slim.messages) m.images = [];
-    }
-    const bytes = new TextEncoder().encode(JSON.stringify(slim));
-    let binary = '';
-    for (const b of bytes) binary += String.fromCharCode(b);
-    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  };
-  let code = encode(false);
-  if (code.length > SHARE_SIZE_LIMIT) code = encode(true);
-  if (code.length > SHARE_SIZE_LIMIT) return null;
-  return `${window.location.origin}/share#${code}`;
-}
 
-/**
- * First-line blocklist for image prompts (sexual/explicit content).
- * Proven against 229 cases: near-zero false positives on innocent words
- * ("class", "title", "badass", "comic strip", "tennis balls") while
- * catching plurals, porn-site names, and CSAM-coded terms.
- * Misspellings and euphemisms are the /api/moderate classifier's job —
- * this list is the instant, offline-capable first line, not the whole wall.
- */
-const NSFW_PROMPT_PATTERN =
-  /\b(nudes?|nakeds?|nsfw|porn|pornographic|porn ?stars?|pornhub|xvideos|xhamster|xnxx|redtube|youporn|manyvids|clips4sale|spankbang|chaturbate|myfreecams|livejasmin|stripchat|bongacams|rule ?34|erotic|erotica|explicit|sexy|hentai|ecchi|oppai|ahegao|yiff|loli|lolicon|shota|shotacon|school ?girls?|jailbait|ageplay|non-?con|dub-?con|zoophil(?:e|ia)?|necrophil(?:e|iac?)|pedophil(?:e|iac?)|paedophil(?:e|iac?)|hebephil(?:e|ia)?|ephebophilia|child ?porn|kiddie ?porn|teen porn|barely legal|r-?18|adults only|gangbang|creampie|oral sex|anal|femdom|findom|cuckold|cuck|jizz|cum|fetish|bdsm|bondage|dominatrix|orgasm|masturbat(?:e|ion)?|ejaculat\w*|copulat\w*|coitus|foreplay|making love|incest|bestiality|rape|sodomy|intercourse|genital|pubic|upskirt|downblouse|creepshot|voyeur(?:ism)?|exhibitionis(?:t|m)|revenge porn|thirst trap|glory holes?|grope|groping|molest\w*|fondl\w*|lingerie|pant(?:y|ies)|thongs?|g-strings?|pasties|stripper|strip ?(?:poker|clubs?)|call ?girls?|cam ?girls?|brothel|red light district|boudoir|pin-?ups?|centerfold|onlyfans|playboy|playgirl|milf|dilf|gilf|boob(?:s|ies)?|tits?|titties|puss(?:y|ies)|dicks?|cocks?|penis(?:es)?|vaginas?|clits?|nipples?|areola|breasts?|cleavage|crotch(?:less)?|butts?|butt naked|arses?|asses|(?<![a-z])ass(?!et\b)|blowjob|handjob|foot ?fetish|foot ?jobs?|tit ?jobs?|rim ?jobs?|fisting|cumshot|bukkake|pegging|deepthroat|facesitting|threesome|foursome|swingers?|orgy|prostitut(?:e|ion)?|fap|fapping|wank|wanking|wanker|jerk ?off|jack ?off|doggy ?style|lap ?dance|peep ?shows?|adult (?:films?|videos?|movies?)|blue (?:movies?|films?)|sex ?(?:tapes?|dolls?|toys?)|phone ?sex|cybersex|sexting|sex shops?|adult (?:bookstore|shop|store)s?|lewd|horny|aroused|arousal|lustful|lusty|smut(?:ty)?|raunchy|topless|undressed|undressing|undress|disrobed|sheer|see ?through|no clothes|without clothes|body ?paint|bodypaint|birthday suit|wet (?:t-?shirts?|shirts?|dress|clothes|clothing)|dildo|vibrator|fleshlight|butt ?plugs?|kamasutra)\b/i;
 
-function isBlockedImagePrompt(prompt: string): boolean {
-  return NSFW_PROMPT_PATTERN.test(prompt);
-}
 
 /** Best-effort clipboard write with a legacy fallback. */
 async function copyText(text: string): Promise<void> {
@@ -1527,7 +1438,7 @@ export default function ChatPage() {
   }, [renamingId, renameDraft, storeKey]);
 
   const shareThread = useCallback((t: Thread) => {
-    const link = buildShareLink(t);
+    const link = buildShareLink(t, window.location.origin);
     if (!link) {
       showAttachError('Chat is too large to share as a link (photos make links huge).');
       return;

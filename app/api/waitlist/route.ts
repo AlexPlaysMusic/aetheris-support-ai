@@ -1,4 +1,5 @@
 import { getSharedRedis } from '@/lib/credit-server';
+import { limitRequest } from '@/lib/rate-limit';
 
 const WAITLIST_KEY = 'aetheris:waitlist';
 
@@ -10,6 +11,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * the waitlist is unavailable (503) rather than silently dropping signups.
  */
 export async function POST(req: Request) {
+  const limited = limitRequest(req, { key: 'waitlist', limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const body: unknown = await req.json();
     const record =

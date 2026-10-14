@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { limitRequest } from '@/lib/rate-limit';
 
 /**
  * Safety gate for image prompts. A static word list can't catch
@@ -7,6 +8,8 @@ import { GoogleGenAI } from '@google/genai';
  * generation rather than risking explicit output.
  */
 export async function POST(req: Request) {
+  const limited = limitRequest(req, { key: 'moderate', limit: 20, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const apiKey =
       process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '';

@@ -7,6 +7,7 @@ import {
   strictRefund,
   strictSpend
 } from '@/lib/credit-server';
+import { limitRequest } from '@/lib/rate-limit';
 
 /** Ask Gemini for one image and return it as a PNG data URL. */
 async function generateImageDataUrl(
@@ -46,6 +47,8 @@ async function generateImageDataUrl(
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const limited = limitRequest(req, { key: 'image', limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
   const apiKey =
     process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '';
   if (apiKey === '') {

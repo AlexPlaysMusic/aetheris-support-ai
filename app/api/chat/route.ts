@@ -15,6 +15,7 @@ import {
   strictRefund,
   strictSpend
 } from '@/lib/credit-server';
+import { limitRequest } from '@/lib/rate-limit';
 
 export const maxDuration = 30;
 
@@ -150,6 +151,8 @@ function clientIp(req: Request): string | null {
 }
 
 export async function POST(req: Request) {
+  const limited = limitRequest(req, { key: 'chat', limit: 30, windowMs: 60_000 });
+  if (limited) return limited;
   // Strict credit identity: verified session id when signed in, else IP.
   // (The body userId is ignored for metering — clients can lie about it.)
   const session = await getServerSession(authOptions).catch(() => null);

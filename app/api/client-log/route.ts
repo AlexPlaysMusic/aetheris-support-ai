@@ -1,6 +1,11 @@
+import { limitRequest } from '@/lib/rate-limit';
+
 /** Receives client-side error beacons so UI failures can be diagnosed
  *  from the server logs. Truncates everything; never throws. */
 export async function POST(req: Request) {
+  // Telemetry must not become a log-spam vector.
+  const limited = limitRequest(req, { key: 'client-log', limit: 60, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const body: unknown = await req.json();
     const record =

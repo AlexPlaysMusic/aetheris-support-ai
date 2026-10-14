@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { Resend } from 'resend';
+import { limitRequest } from '@/lib/rate-limit';
 
 const SUPPORT_FROM = 'Aetheris Support <support@aetherisai.me>';
 const SUPPORT_MODEL = process.env.SUPPORT_MODEL ?? 'gemini-3.8-flash';
@@ -16,6 +17,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * so the same key doesn't have to be configured twice).
  */
 export async function POST(req: Request) {
+  const limited = limitRequest(req, { key: 'support', limit: 5, windowMs: 60_000 });
+  if (limited) return limited;
   try {
     const apiKey =
       process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '';

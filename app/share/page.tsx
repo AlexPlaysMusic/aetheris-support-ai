@@ -4,69 +4,13 @@ import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Bot, User } from 'lucide-react';
 import HeaderBrand from '../components/Header';
-
-type SharedMessage = {
-  role: 'user' | 'assistant';
-  content: string;
-  images: string[];
-};
-
-type SharedChat = {
-  title: string;
-  messages: SharedMessage[];
-};
-
-function decodeShare(hash: string): SharedChat | null {
-  try {
-    const code = hash.startsWith('#') ? hash.slice(1) : hash;
-    if (code === '') return null;
-    const b64 = code.replace(/-/g, '+').replace(/_/g, '/');
-    const binary = atob(b64);
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    const parsed = JSON.parse(json) as {
-      title?: unknown;
-      messages?: unknown;
-    };
-    if (!Array.isArray(parsed.messages)) return null;
-    const messages: SharedMessage[] = [];
-    for (const item of parsed.messages.slice(0, 200)) {
-      if (item === null || typeof item !== 'object') continue;
-      const record = item as Record<string, unknown>;
-      const content =
-        typeof record['content'] === 'string'
-          ? (record['content'] as string).slice(0, 20000)
-          : '';
-      const images = Array.isArray(record['images'])
-        ? (record['images'] as unknown[])
-            .filter((u): u is string => typeof u === 'string')
-            .slice(0, 4)
-        : [];
-      if (content === '' && images.length === 0) continue;
-      messages.push({
-        role: record['role'] === 'user' ? 'user' : 'assistant',
-        content,
-        images
-      });
-    }
-    if (messages.length === 0) return null;
-    return {
-      title:
-        typeof parsed.title === 'string' && parsed.title !== ''
-          ? parsed.title.slice(0, 120)
-          : 'Shared chat',
-      messages
-    };
-  } catch {
-    return null;
-  }
-}
+import { decodeShareChat, type SharedChat } from '@/lib/share';
 
 export default function SharePage() {
   const [chat, setChat] = useState<SharedChat | null | undefined>(undefined);
 
   useEffect(() => {
-    setChat(decodeShare(window.location.hash));
+    setChat(decodeShareChat(window.location.hash));
   }, []);
 
   return (
