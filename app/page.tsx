@@ -1078,7 +1078,11 @@ export default function ChatPage() {
     reload
   } = useChat({
     api: '/api/chat',
-    id: chatId,
+    // NOTE: intentionally NOT keyed by chatId. useChat keeps messages in
+    // SWR under [api, id], so switching ids orphans setMessages writes and
+    // the newly opened chat renders the empty fallback instead. One stable
+    // id here; switching chats is owned by our chatId state + setMessages.
+    id: 'aetheris-chat',
     body: {
       model: selectedModel,
       userId,
