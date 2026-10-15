@@ -72,6 +72,16 @@ body {
   @apply my-3 border-l-2 border-cyan-400/50 pl-3 text-slate-300 italic;
 }
 
+/* Message font-size overrides (settings) */
+.msg-font-s .markdown-body {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.msg-font-l .markdown-body {
+  font-size: 16.5px;
+  line-height: 1.75;
+}
+
 /* Streaming caret */
 .stream-caret::after {
   content: '▍';

@@ -1,8 +1,13 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
+  CREDIT_DAILY_ASTEROID,
   CREDIT_DAILY_GUEST,
+  CREDIT_DAILY_PRO,
   CREDIT_DAILY_USER,
   creditIdentity,
+  dailyAllowance,
+  historyLimit,
+  instructionsLimit,
   messageCost,
   refundCredits,
   remainingCredits,
@@ -90,11 +95,28 @@ describe('refundCredits', () => {
 });
 
 describe('messageCost', () => {
-  it('prices text, pro, images, and files', () => {
-    expect(messageCost({ pro: false, images: 0, files: 0 })).toBe(1);
-    expect(messageCost({ pro: true, images: 0, files: 0 })).toBe(5);
-    expect(messageCost({ pro: false, images: 2, files: 0 })).toBe(5);
-    expect(messageCost({ pro: false, images: 0, files: 3 })).toBe(4);
-    expect(messageCost({ pro: true, images: 2, files: 1 })).toBe(10);
+  it('prices tiers, images, and files', () => {
+    expect(messageCost({ tier: 'basic', images: 0, files: 0 })).toBe(1);
+    expect(messageCost({ tier: 'asteroid', images: 0, files: 0 })).toBe(2);
+    expect(messageCost({ tier: 'pro', images: 0, files: 0 })).toBe(5);
+    expect(messageCost({ tier: 'basic', images: 2, files: 0 })).toBe(5);
+    expect(messageCost({ tier: 'basic', images: 0, files: 3 })).toBe(4);
+    expect(messageCost({ tier: 'pro', images: 2, files: 1 })).toBe(10);
+    expect(messageCost({ tier: 'asteroid', images: 1, files: 1 })).toBe(5);
+  });
+});
+
+describe('tier budgets', () => {
+  it('scales daily allowance, history, and instruction caps by tier', () => {
+    expect(dailyAllowance('basic', false)).toBe(CREDIT_DAILY_GUEST);
+    expect(dailyAllowance('basic', true)).toBe(CREDIT_DAILY_USER);
+    expect(dailyAllowance('asteroid', true)).toBe(CREDIT_DAILY_ASTEROID);
+    expect(dailyAllowance('pro', true)).toBe(CREDIT_DAILY_PRO);
+    expect(historyLimit('basic')).toBe(30);
+    expect(historyLimit('asteroid')).toBe(60);
+    expect(historyLimit('pro')).toBe(100);
+    expect(instructionsLimit('basic')).toBe(1000);
+    expect(instructionsLimit('asteroid')).toBe(2000);
+    expect(instructionsLimit('pro')).toBe(4000);
   });
 });

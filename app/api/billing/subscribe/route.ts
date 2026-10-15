@@ -1,8 +1,16 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getSubscription, subscriptionIsPaying } from '@/lib/paypal';
-import { setProActive } from '@/lib/pro';
+import {
+  ensurePlan,
+  getSubscription,
+  subscriptionIsPaying,
+  type PaidTier
+} from '@/lib/paypal';
+import { getSharedRedis } from '@/lib/credit-server';
+import { setTierActive } from '@/lib/pro';
 import { limitRequest } from '@/lib/rate-limit';
+
+const memoryPlanIds = new Map<string, string>();
 
 /**
  * Activate Pro after the buyer approves in PayPal. The subscription id
@@ -37,6 +45,8 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  const tier: PaidTier =
+    record['tier'] === 'asteroid' ? 'asteroid' : 'pro';
 
   const live = await getSubscription(subscriptionId);
   if (!live.ok) {
@@ -49,6 +59,36 @@ export async function POST(req: Request) {
     );
   }
 
-  await setProActive(userId, subscriptionId);
-  return Response.json({ ok: true, pro: true });
+  // The subscription must belong to the plan being bought — a $10 approval
+  // can never unlock the $20 tier.
+  const redis = getSharedRedis();
+  const planStore = {
+    get: async (key: string): Promise<string | null> => {
+      if (!redis) return memoryPlanIds.get(key) ?? null;
+      try {
+        return await redis.get<string>(key);
+      } catch {
+        return memoryPlanIds.get(key) ?? null;
+      }
+    },
+    set: async (key: string, value: string): Promise<void> => {
+      memoryPlanIds.set(key, value);
+      if (!redis) return;
+      try {
+        await redis.set(key, value);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+  const expectedPlanId = await ensurePlan(tier, planStore).catch(() => null);
+  if (expectedPlanId && live.planId && live.planId !== expectedPlanId) {
+    return Response.json(
+      { error: 'This subscription is for a different plan.' },
+      { status: 400 }
+    );
+  }
+
+  await setTierActive(userId, tier, subscriptionId);
+  return Response.json({ ok: true, tier });
 }

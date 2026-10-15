@@ -1,5 +1,6 @@
 ﻿import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import {
+  ensurePlan,
   ensureProPlan,
   getSubscription,
   paypalBaseUrl,
@@ -62,8 +63,8 @@ describe('getSubscription', () => {
     );
     const first = await getSubscription('sub-1');
     const second = await getSubscription('sub-1');
-    expect(first).toEqual({ ok: true, status: 'ACTIVE' });
-    expect(second).toEqual({ ok: true, status: 'ACTIVE' });
+    expect(first).toEqual({ ok: true, status: 'ACTIVE', planId: null });
+    expect(second).toEqual({ ok: true, status: 'ACTIVE', planId: null });
     expect(calls.filter((c) => c.includes('/oauth2/token'))).toHaveLength(1);
   });
 
@@ -116,7 +117,37 @@ describe('ensureProPlan', () => {
     };
     expect(await ensureProPlan(api)).toBe('plan-9');
     expect(await ensureProPlan(api)).toBe('plan-9');
-    expect(store.get('aetheris:paypal:plan')).toBe('plan-9');
+    expect(store.get('aetheris:paypal:plan:pro')).toBe('plan-9');
+  });
+
+  it('keeps separate plans per tier', async () => {
+    const store = new Map<string, string>();
+    let plans = 0;
+    globalThis.fetch = (async (url: unknown) => {
+      const u = String(url);
+      if (u.includes('/oauth2/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'tok', expires_in: 3600 })
+        };
+      }
+      if (u.includes('/catalogs/products')) {
+        return { ok: true, status: 201, json: async () => ({ id: 'prod-x' }) };
+      }
+      plans += 1;
+      return { ok: true, status: 201, json: async () => ({ id: `plan-${plans}` }) };
+    }) as unknown as typeof fetch;
+    const api = {
+      get: async (k: string) => store.get(k) ?? null,
+      set: async (k: string, v: string) => {
+        store.set(k, v);
+      }
+    };
+    const asteroid = await ensurePlan('asteroid', api);
+    const pro = await ensurePlan('pro', api);
+    expect(asteroid).not.toBe(pro);
+    expect(await ensurePlan('asteroid', api)).toBe(asteroid);
   });
 });
 

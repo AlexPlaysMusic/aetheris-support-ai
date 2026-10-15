@@ -7,11 +7,15 @@ import ReactMarkdown from 'react-markdown';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import HeaderBrand from './components/Header';
 import {
+  CREDIT_COST_IMAGE_GEN,
+  CREDIT_COST_IMAGE_GEN_ASTEROID,
+  CREDIT_COST_IMAGE_GEN_PRO,
   CREDIT_DAILY_GUEST,
   CREDIT_DAILY_PRO,
   CREDIT_DAILY_USER,
-  CREDIT_COST_IMAGE_GEN,
-  CREDIT_COST_IMAGE_GEN_PRO,
+  dailyAllowance,
+  historyLimit,
+  instructionsLimit,
   creditIdentity,
   messageCost,
   refundCredits,
@@ -56,7 +60,24 @@ import {
 
 /* ---------------------------------- types --------------------------------- */
 
-type ModelId = 'aetheris-basic' | 'aetheris-pro';
+type ModelId = 'aetheris-basic' | 'aetheris-asteroid' | 'aetheris-pro';
+
+type PlanTier = 'basic' | 'asteroid' | 'pro';
+
+const TIER_RANK: Record<PlanTier | ModelId, number> = {
+  basic: 0,
+  asteroid: 1,
+  pro: 2,
+  'aetheris-basic': 0,
+  'aetheris-asteroid': 1,
+  'aetheris-pro': 2
+};
+
+function modelTier(model: ModelId): PlanTier {
+  if (model === 'aetheris-pro') return 'pro';
+  if (model === 'aetheris-asteroid') return 'asteroid';
+  return 'basic';
+}
 
 type Thread = {
   id: string;
@@ -398,9 +419,16 @@ const MODELS: {
     locked: false
   },
   {
+    id: 'aetheris-asteroid',
+    label: 'Aetheris Asteroid',
+    hint: 'Balanced · 500/day',
+    badge: 'Mid',
+    locked: true
+  },
+  {
     id: 'aetheris-pro',
-    label: 'Aetheris Pro (v1.0)',
-    hint: 'Locked · Coming soon',
+    label: 'Aetheris Pro',
+    hint: 'Deepest reasoning · Code',
     badge: 'Pro',
     locked: true
   }
@@ -882,6 +910,85 @@ function ModalShell({
   );
 }
 
+/** One purchasable plan card inside the upgrade dialog. */
+function PlanCard({
+  name,
+  price,
+  features,
+  owned,
+  children
+}: {
+  name: string;
+  price: string;
+  features: string[];
+  owned: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-xl border p-3.5 ${
+        owned
+          ? 'border-emerald-300/30 bg-emerald-400/[0.06]'
+          : 'border-white/10 bg-white/[0.02]'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[14px] font-semibold text-white">{name}</p>
+        <span className="shrink-0 rounded-full bg-cyan-400/15 px-2.5 py-1 text-[12px] font-bold text-cyan-200">
+          {price}
+        </span>
+      </div>
+      <ul className="mt-2.5 space-y-1.5">
+        {features.map((feature) => (
+          <li
+            key={feature}
+            className="flex items-start gap-2 text-[12.5px] text-slate-300"
+          >
+            <Check size={14} className="mt-0.5 shrink-0 text-cyan-300" />
+            {feature}
+          </li>
+        ))}
+      </ul>
+      <div className="mt-3">{children}</div>
+    </div>
+  );
+}
+
+/** PayPal subscribe button for one plan (lives under a shared provider). */
+function PlanPayButton({
+  planId,
+  tier,
+  disabled,
+  onSubscribed,
+  onFailed
+}: {
+  planId: string;
+  tier: 'asteroid' | 'pro';
+  disabled: boolean;
+  onSubscribed: (subscriptionId: string, tier: 'asteroid' | 'pro') => void;
+  onFailed: (message: string | null) => void;
+}) {
+  return (
+    <PayPalButtons
+      style={{ layout: 'vertical', color: 'gold', shape: 'rect', label: 'subscribe' }}
+      disabled={disabled}
+      createSubscription={(_data, actions) =>
+        actions.subscription.create({ plan_id: planId })
+      }
+      onApprove={(data) => {
+        if (data.subscriptionID) {
+          onSubscribed(data.subscriptionID, tier);
+        } else {
+          onFailed('PayPal did not return a subscription. Try again.');
+        }
+        return Promise.resolve();
+      }}
+      onError={() => onFailed('PayPal checkout failed. Try again.')}
+      onCancel={() => onFailed(null)}
+    />
+  );
+}
+
 /* --------------------------------- page ----------------------------------- */
 
 export default function ChatPage() {
@@ -951,12 +1058,29 @@ export default function ChatPage() {
   const [autoScroll, toggleAutoScroll] = useLocalPref('aetheris-auto-scroll', true);
   const [showTimestamps, toggleTimestamps] = useLocalPref('aetheris-timestamps', false);
   const [reduceMotion, toggleReduceMotion] = useLocalPref('aetheris-reduce-motion', false);
+  const [compactMode, toggleCompactMode] = useLocalPref('aetheris-compact', false);
+  const [showAvatars, toggleAvatars] = useLocalPref('aetheris-avatars', true);
+  const [fontSize, setFontSize] = useLocalString('aetheris-font-size', 'M');
+
+  const tapBuzz = () => {
+    try {
+      if (!reduceMotion && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate(10);
+      }
+    } catch {
+      /* unsupported — ignore */
+    }
+  };
   const [reactions, setReactions] = useState<Record<string, 'up' | 'down'>>({});
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [creditsLeft, setCreditsLeft] = useState(CREDIT_DAILY_GUEST);
   const [outOfCredits, setOutOfCredits] = useState(false);
   const [isPro, setIsPro] = useState(false);
-  const [payPalPlanId, setPayPalPlanId] = useState<string | null>(null);
+  const [tier, setTier] = useState<PlanTier>('basic');
+  const [payPalPlans, setPayPalPlans] = useState<{
+    asteroid: string | null;
+    pro: string | null;
+  }>({ asteroid: null, pro: null });
   const [billingBusy, setBillingBusy] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
 
@@ -1022,7 +1146,13 @@ export default function ChatPage() {
   const { data: session, status } = useSession();
   const userId = session?.user?.id || session?.user?.email || null;
   const storeKey = storageKeyFor(userId);
-  const creditId = useMemo(() => creditIdentity(userId), [userId]);
+  const creditId = useMemo(
+    () => ({
+      ...creditIdentity(userId),
+      daily: dailyAllowance(tier, userId !== null)
+    }),
+    [userId, tier]
+  );
   const [instructions, setInstructions] = useLocalString(
     `aetheris-instructions:${userId ?? 'guest'}`,
     ''
@@ -1051,10 +1181,11 @@ export default function ChatPage() {
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const msgCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* Pro membership follows the signed-in account (verified server-side) */
+  /* Membership tier follows the signed-in account (verified server-side) */
   useEffect(() => {
     if (status !== 'authenticated') {
       setIsPro(false);
+      setTier('basic');
       return;
     }
     let cancelled = false;
@@ -1062,79 +1193,95 @@ export default function ChatPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d: unknown) => {
         if (!cancelled && d !== null && typeof d === 'object') {
-          setIsPro((d as { pro?: unknown }).pro === true);
+          const record = d as { pro?: unknown; tier?: unknown };
+          setIsPro(record.pro === true);
+          setTier(
+            record.tier === 'pro' || record.tier === 'asteroid'
+              ? record.tier
+              : 'basic'
+          );
         }
       })
       .catch(() => {
-        /* offline — stay non-Pro */
+        /* offline — stay on Basic */
       });
     return () => {
       cancelled = true;
     };
   }, [status]);
 
-  /* a locked-out Pro selection always falls back to Basic */
+  /* a selection above the membership always falls back to Basic */
   useEffect(() => {
-    if (!isPro) {
-      setSelectedModel((current) =>
-        current === 'aetheris-pro' ? 'aetheris-basic' : current
-      );
-    }
-  }, [isPro]);
+    setSelectedModel((current) =>
+      TIER_RANK[tier] >= TIER_RANK[modelTier(current)]
+        ? current
+        : 'aetheris-basic'
+    );
+  }, [tier]);
 
-  /* fetch the PayPal plan when the upgrade dialog opens */
+  /* fetch both PayPal plans when the upgrade dialog opens */
   useEffect(() => {
     if (!upgradeOpen || isPro || PAYPAL_CLIENT_ID === '') return;
     let cancelled = false;
     setBillingError(null);
-    void fetch('/api/billing/plan')
-      .then(async (r) => {
-        const d = (await r.json().catch(() => null)) as Record<
-          string,
-          unknown
-        > | null;
-        if (!r.ok) {
-          throw new Error(
-            (d && typeof d['error'] === 'string' && d['error']) ||
-              'Billing is not available right now.'
-          );
-        }
-        if (!cancelled && d && typeof d['planId'] === 'string') {
-          setPayPalPlanId(d['planId'] as string);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setBillingError(
-            err instanceof Error ? err.message : 'Billing is unavailable.'
-          );
-        }
-      });
+    const loadPlan = (planTier: 'asteroid' | 'pro') =>
+      fetch(`/api/billing/plan?tier=${planTier}`)
+        .then(async (r) => {
+          const d = (await r.json().catch(() => null)) as Record<
+            string,
+            unknown
+          > | null;
+          if (!r.ok) {
+            throw new Error(
+              (d && typeof d['error'] === 'string' && d['error']) ||
+                'Billing is not available right now.'
+            );
+          }
+          if (!cancelled && d && typeof d['planId'] === 'string') {
+            setPayPalPlans((prev) => ({
+              ...prev,
+              [planTier]: d['planId'] as string
+            }));
+          }
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) {
+            setBillingError(
+              err instanceof Error ? err.message : 'Billing is unavailable.'
+            );
+          }
+        });
+    void Promise.all([loadPlan('asteroid'), loadPlan('pro')]);
     return () => {
       cancelled = true;
     };
   }, [upgradeOpen, isPro, PAYPAL_CLIENT_ID]);
 
-  const confirmSubscription = (subscriptionId: string) => {
+  const confirmSubscription = (subscriptionId: string, planTier: 'asteroid' | 'pro') => {
     setBillingBusy(true);
     setBillingError(null);
     void fetch('/api/billing/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscriptionId })
+      body: JSON.stringify({ subscriptionId, tier: planTier })
     })
       .then(async (r) => {
         const d = (await r.json().catch(() => null)) as Record<
           string,
           unknown
         > | null;
-        if (!r.ok || !d || d['pro'] !== true) {
+        if (!r.ok || !d || d['ok'] !== true) {
           throw new Error(
             (d && typeof d['error'] === 'string' && d['error']) ||
               'Subscription could not be confirmed.'
           );
         }
-        setIsPro(true);
+        const confirmedTier =
+          d['tier'] === 'asteroid' || d['tier'] === 'pro'
+            ? (d['tier'] as PlanTier)
+            : planTier;
+        setTier(confirmedTier);
+        setIsPro(confirmedTier === 'pro');
         setUpgradeOpen(false);
       })
       .catch((err: unknown) => {
@@ -1257,7 +1404,7 @@ export default function ChatPage() {
   const chargeSend = useCallback(
     (images: number, files: number): boolean => {
       const cost = messageCost({
-        pro: selectedModel === 'aetheris-pro',
+        tier: modelTier(selectedModel),
         images,
         files
       });
@@ -1318,12 +1465,12 @@ export default function ChatPage() {
             messages
           },
           ...prev
-        ].slice(0, 30);
+        ].slice(0, historyLimit(tier));
       }
       persistThreads(storeKey, next);
       return next;
     });
-  }, [messages, chatId, selectedModel, storeKey]);
+  }, [messages, chatId, selectedModel, storeKey, tier]);
 
   /* autoscroll */
   useEffect(() => {
@@ -1471,12 +1618,14 @@ export default function ChatPage() {
       setSpeakingId(null);
       setChatId(t.id);
       setMessages(t.messages);
-      // Pro is locked: old threads saved on Pro fall back to Basic.
-      setSelectedModel(t.model === 'aetheris-pro' ? 'aetheris-basic' : t.model);
+      // Threads saved on a higher tier than the membership fall back to Basic.
+      setSelectedModel(
+        TIER_RANK[tier] >= TIER_RANK[modelTier(t.model)] ? t.model : 'aetheris-basic'
+      );
       setAttachments([]);
       setSidebarOpen(false);
     },
-    [setMessages]
+    [setMessages, tier]
   );
 
   const clearAll = useCallback(() => {
@@ -1670,7 +1819,12 @@ export default function ChatPage() {
   };
 
   const generateImage = (prompt: string) => {
-    const imageCost = isPro ? CREDIT_COST_IMAGE_GEN_PRO : CREDIT_COST_IMAGE_GEN;
+    const imageCost =
+      tier === 'pro'
+        ? CREDIT_COST_IMAGE_GEN_PRO
+        : tier === 'asteroid'
+          ? CREDIT_COST_IMAGE_GEN_ASTEROID
+          : CREDIT_COST_IMAGE_GEN;
     autoRetried.current = false;
     setSendError(null);
     if (retryTimer.current) {
@@ -1717,6 +1871,7 @@ export default function ChatPage() {
         lastSpent.current = 0;
         setCreditsLeft(remaining);
         setOutOfCredits(false);
+        tapBuzz();
         setInput('');
         if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
@@ -1844,6 +1999,7 @@ export default function ChatPage() {
     ) {
       return;
     }
+    tapBuzz();
 
     if (attachments.length > 0) {
       // Text files + PDFs ride along as message text; photos go as
@@ -1877,6 +2033,7 @@ export default function ChatPage() {
   const sendSuggestion = (s: string) => {
     if (isLoading) return;
     if (!chargeSend(0, 0)) return;
+    tapBuzz();
     autoRetried.current = false;
     setSendError(null);
     if (retryTimer.current) {
@@ -1988,13 +2145,14 @@ export default function ChatPage() {
                   className="animate-menu absolute right-0 top-11 w-64 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
                 >
                   {MODELS.map((m) => {
-                    const proItem = m.id === 'aetheris-pro';
-                    const locked = proItem ? !isPro : m.locked;
-                    const hint = proItem
-                      ? isPro
-                        ? 'Deeper reasoning · Code'
-                        : 'Locked · Coming soon'
-                      : m.hint;
+                    const need = modelTier(m.id);
+                    const unlocked = TIER_RANK[tier] >= TIER_RANK[need];
+                    const hint =
+                      need === 'basic'
+                        ? m.hint
+                        : unlocked
+                          ? m.hint
+                          : `Locked · ${need === 'pro' ? '$20/mo' : '$10/mo'} — tap to upgrade`;
                     return (
                       <button
                         key={m.id}
@@ -2002,12 +2160,12 @@ export default function ChatPage() {
                         role="option"
                         aria-selected={m.id === selectedModel}
                         title={
-                          locked
-                            ? 'Aetheris Pro is locked — see upgrade options'
-                            : undefined
+                          unlocked
+                            ? undefined
+                            : 'Locked — see upgrade options'
                         }
                         onClick={() => {
-                          if (locked) {
+                          if (!unlocked) {
                             setModelOpen(false);
                             setUpgradeOpen(true);
                             return;
@@ -2021,11 +2179,15 @@ export default function ChatPage() {
                       >
                         <span
                           className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                            proItem
-                              ? isPro
+                            need === 'pro'
+                              ? unlocked
                                 ? 'bg-violet-500/20 text-violet-200'
                                 : 'bg-white/10 text-slate-400'
-                              : 'bg-cyan-400/15 text-cyan-200'
+                              : need === 'asteroid'
+                                ? unlocked
+                                  ? 'bg-amber-500/20 text-amber-200'
+                                  : 'bg-white/10 text-slate-400'
+                                : 'bg-cyan-400/15 text-cyan-200'
                           }`}
                         >
                           {m.badge}
@@ -2038,7 +2200,7 @@ export default function ChatPage() {
                             {hint}
                           </span>
                         </span>
-                        {locked ? (
+                        {!unlocked ? (
                           <Lock size={15} className="shrink-0 text-slate-500" />
                         ) : (
                           m.id === selectedModel && (
@@ -2060,12 +2222,16 @@ export default function ChatPage() {
               <Coins size={13} className="text-cyan-300" />
               {creditsLeft}
             </span>
-            {isPro && (
+            {tier !== 'basic' && (
               <span
-                title="Pro membership active"
-                className="shrink-0 rounded-full bg-violet-500/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-200"
+                title={`${tier === 'pro' ? 'Pro' : 'Asteroid'} membership active`}
+                className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                  tier === 'pro'
+                    ? 'bg-violet-500/20 text-violet-200'
+                    : 'bg-amber-500/20 text-amber-200'
+                }`}
               >
-                Pro
+                {tier === 'pro' ? 'Pro' : 'Asteroid'}
               </span>
             )}
 
@@ -2303,7 +2469,11 @@ export default function ChatPage() {
                       </span>
                       <span className="mt-0.5 block text-[11px] text-slate-500">
                         {new Date(t.createdAt).toLocaleDateString()} ·{' '}
-                        {t.model === 'aetheris-pro' ? 'Pro (locked)' : 'Basic'}
+                        {t.model === 'aetheris-pro'
+                      ? 'Pro'
+                      : t.model === 'aetheris-asteroid'
+                        ? 'Asteroid'
+                        : 'Basic'}
                       </span>
                     </button>
                   )}
@@ -2476,24 +2646,28 @@ export default function ChatPage() {
                     key={key}
                     className={`animate-rise group flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}
                   >
-                    <div className="mt-0.5 h-8 w-8 shrink-0">
-                      {isUser ? (
-                        <ProfileAvatar
-                          src={session?.user?.image}
-                          name={session?.user?.name}
-                          size={32}
-                        />
-                      ) : (
-                        <BasicBotAvatar size={32} />
-                      )}
-                    </div>
+                    {showAvatars && (
+                      <div className="mt-0.5 h-8 w-8 shrink-0">
+                        {isUser ? (
+                          <ProfileAvatar
+                            src={session?.user?.image}
+                            name={session?.user?.name}
+                            size={32}
+                          />
+                        ) : (
+                          <BasicBotAvatar size={32} />
+                        )}
+                      </div>
+                    )}
                     <div
                       className={`flex min-w-0 max-w-[85%] flex-col sm:max-w-[80%] ${
                         isUser ? 'items-end' : 'items-start'
                       }`}
                     >
                     <div
-                      className={`w-full rounded-2xl px-3.5 py-2.5 ${
+                      className={`w-full rounded-2xl ${
+                        compactMode ? 'px-3 py-2' : 'px-3.5 py-2.5'
+                      } ${
                         isUser
                           ? 'rounded-tr-md border border-white/10 bg-white/[0.07] text-slate-100'
                           : 'rounded-tl-md border border-white/5 bg-surface text-slate-100'
@@ -2536,13 +2710,29 @@ export default function ChatPage() {
                             </div>
                           )}
                           {bodyText.trim() !== '' && (
-                            <p className="whitespace-pre-wrap text-[14.5px] leading-7">
+                            <p
+                              className={`whitespace-pre-wrap ${
+                                fontSize === 'S'
+                                  ? 'text-[13px] leading-6'
+                                  : fontSize === 'L'
+                                    ? 'text-[16.5px] leading-8'
+                                    : 'text-[14.5px] leading-7'
+                              }`}
+                            >
                               {bodyText}
                             </p>
                           )}
                         </div>
                       ) : (
-                        <div className="min-w-0">
+                        <div
+                          className={`min-w-0 ${
+                            fontSize === 'S'
+                              ? 'msg-font-s'
+                              : fontSize === 'L'
+                                ? 'msg-font-l'
+                                : ''
+                          }`}
+                        >
                           <ChatMarkdown content={bodyText} />
                           <div className="mt-1.5 flex items-center gap-0.5 transition md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
                             <button
@@ -2640,9 +2830,11 @@ export default function ChatPage() {
               {isLoading &&
                 messages[messages.length - 1]?.role === 'user' && (
                   <div className="flex gap-2.5">
-                    <div className="h-8 w-8 shrink-0">
-                      <BasicBotAvatar size={32} />
-                    </div>
+                    {showAvatars && (
+                      <div className="h-8 w-8 shrink-0">
+                        <BasicBotAvatar size={32} />
+                      </div>
+                    )}
                     <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-md border border-white/5 bg-surface px-4 py-3">
                       {[0, 1, 2].map((d) => (
                         <span
@@ -2909,97 +3101,122 @@ export default function ChatPage() {
 
       {/* ------------------------- upgrade modal ------------------------- */}
       {upgradeOpen && (
-        <ModalShell title="Upgrade to Aetheris Pro" onClose={() => setUpgradeOpen(false)}>
-          <div className="flex items-center gap-2">
-            <span className="rounded-full bg-cyan-400/15 px-2.5 py-1 text-[12px] font-bold text-cyan-200">
-              $20 / month
-            </span>
-            <span className="text-[12px] text-slate-400">
-              {isPro ? 'Active on your account' : 'Cancel anytime'}
-            </span>
-          </div>
-          <ul className="mt-4 space-y-2.5">
-            {[
-              'Access to Aetheris v1.0 (Advanced Reasoning)',
-              'Faster generation speeds & zero queue times',
-              'Increased rate limits & file attachment support',
-              `${CREDIT_DAILY_PRO.toLocaleString()} daily credits for heavy use`,
-              'Half-price image generation (5 vs 10 credits)'
-            ].map((feature) => (
-              <li key={feature} className="flex items-start gap-2.5 text-[13.5px] text-slate-200">
-                <Check size={16} className="mt-0.5 shrink-0 text-cyan-300" />
-                {feature}
-              </li>
-            ))}
-          </ul>
-          {isPro ? (
-            <div className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-violet-500/15 px-3 py-2.5 text-sm font-semibold text-violet-100">
-              <Check size={16} className="text-emerald-300" /> Pro is active —
-              manage or cancel anytime in PayPal.
+        <ModalShell title="Upgrade Aetheris" onClose={() => setUpgradeOpen(false)}>
+          {tier !== 'basic' && (
+            <div className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-400/[0.07] px-3 py-2 text-[13px] font-medium text-emerald-100">
+              <Check size={15} className="text-emerald-300" />
+              {tier === 'pro' ? 'Pro' : 'Asteroid'} is active on your account
             </div>
-          ) : isGuest ? (
+          )}
+          {isGuest ? (
             <button
               type="button"
               onClick={() => {
                 setUpgradeOpen(false);
                 signIn('google');
               }}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
             >
               <LogIn size={15} /> Sign in to subscribe
             </button>
           ) : PAYPAL_CLIENT_ID === '' ? (
-            <p className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-[12.5px] leading-6 text-slate-400">
+            <p className="mt-2 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-[12.5px] leading-6 text-slate-400">
               Card payments aren&apos;t enabled on this server yet — check back
               soon.
             </p>
           ) : (
             <>
               {billingError && (
-                <p className="mt-4 text-[12px] text-red-300">{billingError}</p>
+                <p className="mb-2 text-[12px] text-red-300">{billingError}</p>
               )}
-              {payPalPlanId ? (
-                <div className="mt-4">
-                  <PayPalScriptProvider
-                    options={{
-                      clientId: PAYPAL_CLIENT_ID,
-                      components: 'buttons',
-                      intent: 'subscription',
-                      vault: true
-                    }}
+              <PayPalScriptProvider
+                options={{
+                  clientId: PAYPAL_CLIENT_ID,
+                  components: 'buttons',
+                  intent: 'subscription',
+                  vault: true
+                }}
+              >
+                <div className="space-y-3">
+                  <PlanCard
+                    name="Aetheris Asteroid"
+                    price="$10 / month"
+                    features={[
+                      'Balanced v3.5 model for everyday+ chats',
+                      '500 daily credits',
+                      'Images at 7 credits',
+                      'Up to 60 saved chats'
+                    ]}
+                    owned={tier === 'asteroid'}
                   >
-                    <PayPalButtons
-                      style={{ layout: 'vertical', color: 'gold', shape: 'rect', label: 'subscribe' }}
-                      disabled={billingBusy}
-                      createSubscription={(_data, actions) =>
-                        actions.subscription.create({ plan_id: payPalPlanId })
-                      }
-                      onApprove={(data) => {
-                        if (data.subscriptionID) {
-                          confirmSubscription(data.subscriptionID);
-                        } else {
-                          setBillingError('PayPal did not return a subscription. Try again.');
-                        }
-                        return Promise.resolve();
-                      }}
-                      onError={() => setBillingError('PayPal checkout failed. Try again.')}
-                      onCancel={() => setBillingError(null)}
-                    />
-                  </PayPalScriptProvider>
+                    {tier === 'asteroid' ? (
+                      <p className="flex items-center justify-center gap-1.5 text-[13px] font-semibold text-emerald-200">
+                        <Check size={15} /> Current plan
+                      </p>
+                    ) : payPalPlans.asteroid ? (
+                      <PlanPayButton
+                        planId={payPalPlans.asteroid}
+                        tier="asteroid"
+                        disabled={billingBusy}
+                        onSubscribed={confirmSubscription}
+                        onFailed={setBillingError}
+                      />
+                    ) : (
+                      !billingError && (
+                        <p className="text-center text-[12.5px] text-slate-500">
+                          Loading secure checkout…
+                        </p>
+                      )
+                    )}
+                  </PlanCard>
+                  <PlanCard
+                    name="Aetheris Pro"
+                    price="$20 / month"
+                    features={[
+                      'Strongest v4 reasoning model',
+                      '1,000 daily credits for heavy use',
+                      'Half-price images (5 credits)',
+                      'Up to 100 saved chats'
+                    ]}
+                    owned={tier === 'pro'}
+                  >
+                    {tier === 'pro' ? (
+                      <p className="flex items-center justify-center gap-1.5 text-[13px] font-semibold text-emerald-200">
+                        <Check size={15} /> Current plan
+                      </p>
+                    ) : (
+                      <>
+                        {tier === 'asteroid' && (
+                          <p className="mb-2 text-[11.5px] leading-5 text-slate-400">
+                            Switching starts a new Pro subscription — remember to
+                            cancel Asteroid in PayPal to avoid double billing.
+                          </p>
+                        )}
+                        {payPalPlans.pro ? (
+                          <PlanPayButton
+                            planId={payPalPlans.pro}
+                            tier="pro"
+                            disabled={billingBusy}
+                            onSubscribed={confirmSubscription}
+                            onFailed={setBillingError}
+                          />
+                        ) : (
+                          !billingError && (
+                            <p className="text-center text-[12.5px] text-slate-500">
+                              Loading secure checkout…
+                            </p>
+                          )
+                        )}
+                      </>
+                    )}
+                  </PlanCard>
                 </div>
-              ) : (
-                !billingError && (
-                  <p className="mt-4 text-center text-[12.5px] text-slate-500">
-                    Loading secure checkout…
-                  </p>
-                )
-              )}
+              </PayPalScriptProvider>
             </>
           )}
           <p className="mt-2.5 text-center text-[11px] text-slate-500">
-            {isPro
-              ? 'Receipts and cancellation live in your PayPal account.'
-              : 'Secure checkout by PayPal. Cancel anytime.'}
+            Secure checkout by PayPal. Cancel anytime — receipts live in your
+            PayPal account.
           </p>
         </ModalShell>
       )}
@@ -3117,6 +3334,48 @@ export default function ChatPage() {
               checked={reduceMotion}
               onToggle={toggleReduceMotion}
             />
+            <PrefToggle
+              label="Compact messages"
+              hint="Tighter bubbles for denser chats"
+              checked={compactMode}
+              onToggle={toggleCompactMode}
+            />
+            <PrefToggle
+              label="Show avatars"
+              hint="Profile and bot pictures in chat"
+              checked={showAvatars}
+              onToggle={toggleAvatars}
+            />
+            <div className="px-1 py-2">
+              <p className="text-[13.5px] font-medium text-slate-100">
+                Message text size
+              </p>
+              <div
+                className="mt-2 grid grid-cols-3 gap-1.5"
+                role="group"
+                aria-label="Message text size"
+              >
+                {[
+                  { id: 'S', label: 'Small' },
+                  { id: 'M', label: 'Medium' },
+                  { id: 'L', label: 'Large' }
+                ].map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setFontSize(option.id)}
+                    aria-pressed={fontSize === option.id}
+                    className={`rounded-lg border px-2 py-1.5 text-[12.5px] font-medium transition ${
+                      fontSize === option.id
+                        ? 'border-cyan-300/50 bg-cyan-400/10 text-cyan-100'
+                        : 'border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/25'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="mt-2 border-t border-white/5 px-1 pt-3">
               <p className="text-[13.5px] font-medium text-slate-100">
                 Personalization
@@ -3127,9 +3386,11 @@ export default function ChatPage() {
               </p>
               <textarea
                 value={instructions}
-                onChange={(e) => setInstructions(e.target.value.slice(0, 1000))}
+                onChange={(e) =>
+                  setInstructions(e.target.value.slice(0, instructionsLimit(tier)))
+                }
                 rows={3}
-                maxLength={1000}
+                maxLength={instructionsLimit(tier)}
                 placeholder="e.g. Keep answers short. I'm learning Spanish — correct my mistakes."
                 aria-label="Custom instructions for Aetheris"
                 className="w-full resize-none rounded-xl border border-white/10 bg-abyss px-3 py-2.5 text-[13.5px] leading-6 text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none"

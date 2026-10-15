@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { getProStatus, resetProMemory, setProActive } from '../pro';
+import { getProStatus, getTier, resetProMemory, setProActive, setTierActive } from '../pro';
 
 beforeEach(() => {
   resetProMemory();
@@ -15,6 +15,7 @@ describe('getProStatus', () => {
   it('guests are never Pro', async () => {
     expect(await getProStatus(null)).toEqual({
       pro: false,
+      tier: 'basic',
       subscriptionId: null,
       checkedAt: null
     });
@@ -58,6 +59,15 @@ describe('getProStatus', () => {
     }) as unknown as typeof fetch;
     const status = await getProStatus('user-2');
     expect(status.pro).toBe(false);
+  });
+
+  it('tracks the asteroid tier separately from pro', async () => {
+    await setTierActive('user-9', 'asteroid', 'sub-a');
+    const status = await getProStatus('user-9');
+    expect(status.pro).toBe(false);
+    expect(status.tier).toBe('asteroid');
+    expect(await getTier('user-9')).toBe('asteroid');
+    expect(await getTier(null)).toBe('basic');
   });
 
   it('stays active when PayPal confirms ACTIVE after 24h', async () => {

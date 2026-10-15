@@ -9,16 +9,21 @@ import { getSubscription, subscriptionIsPaying } from './paypal';
  * - Guests can never be Pro (no account to attach billing to).
  */
 
+export type PlanTierStatus = 'basic' | 'asteroid' | 'pro';
+
 export type ProStatus = {
   pro: boolean;
+  tier: PlanTierStatus;
   subscriptionId: string | null;
   checkedAt: number | null;
 };
 
 type StoredPro = {
-  active: boolean;
+  tier: PlanTierStatus;
   subscriptionId: string;
   checkedAt: number;
+  /** legacy shape (pre-tier): active boolean only */
+  active?: boolean;
 };
 
 const REVALIDATE_MS = 24 * 3600 * 1000;
@@ -31,25 +36,35 @@ export function resetProMemory(): void {
   memoryPro.clear();
 }
 
+function normalizeStored(parsed: Partial<StoredPro>): StoredPro | null {
+  const tier: PlanTierStatus =
+    parsed.tier === 'pro' || parsed.tier === 'asteroid'
+      ? parsed.tier
+      : parsed.active === true
+        ? 'pro' // legacy pre-tier records were Pro memberships
+        : 'basic';
+  if (tier === 'basic') return null;
+  return {
+    tier,
+    subscriptionId:
+      typeof parsed.subscriptionId === 'string' ? parsed.subscriptionId : '',
+    checkedAt: typeof parsed.checkedAt === 'number' ? parsed.checkedAt : 0
+  };
+}
+
 async function readPro(userId: string): Promise<StoredPro | null> {
   const redis = getSharedRedis();
   if (redis) {
     try {
       const raw = await redis.get<string>(PRO_KEY_PREFIX + userId);
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as Partial<StoredPro>;
-      if (typeof parsed.active !== 'boolean') return null;
-      return {
-        active: parsed.active,
-        subscriptionId:
-          typeof parsed.subscriptionId === 'string' ? parsed.subscriptionId : '',
-        checkedAt: typeof parsed.checkedAt === 'number' ? parsed.checkedAt : 0
-      };
+      return normalizeStored(JSON.parse(raw) as Partial<StoredPro>);
     } catch {
       return null;
     }
   }
-  return memoryPro.get(userId) ?? null;
+  const mem = memoryPro.get(userId) ?? null;
+  return mem ? normalizeStored(mem) : null;
 }
 
 async function writePro(userId: string, value: StoredPro): Promise<void> {
@@ -65,16 +80,25 @@ async function writePro(userId: string, value: StoredPro): Promise<void> {
   memoryPro.set(userId, value);
 }
 
-/** Mark an account Pro after a verified subscription approval. */
+/** Mark an account paid after a verified subscription approval. */
+export async function setTierActive(
+  userId: string,
+  tier: Exclude<PlanTierStatus, 'basic'>,
+  subscriptionId: string
+): Promise<void> {
+  await writePro(userId, {
+    tier,
+    subscriptionId,
+    checkedAt: Date.now()
+  });
+}
+
+/** Backwards-compatible alias (Pro tier). */
 export async function setProActive(
   userId: string,
   subscriptionId: string
 ): Promise<void> {
-  await writePro(userId, {
-    active: true,
-    subscriptionId,
-    checkedAt: Date.now()
-  });
+  await setTierActive(userId, 'pro', subscriptionId);
 }
 
 async function revalidate(
@@ -83,28 +107,44 @@ async function revalidate(
 ): Promise<ProStatus> {
   if (Date.now() - stored.checkedAt < REVALIDATE_MS) {
     return {
-      pro: stored.active,
+      pro: stored.tier === 'pro',
+      tier: stored.tier,
       subscriptionId: stored.subscriptionId || null,
       checkedAt: stored.checkedAt
     };
   }
-  if (!stored.active || stored.subscriptionId === '') {
-    return { pro: false, subscriptionId: null, checkedAt: stored.checkedAt };
+  if (stored.subscriptionId === '') {
+    return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: stored.checkedAt };
   }
   const live = await getSubscription(stored.subscriptionId);
   const paying = live.ok && subscriptionIsPaying(live.status);
+  const tier: PlanTierStatus = paying ? stored.tier : 'basic';
   const next: StoredPro = {
-    active: paying,
+    tier,
     subscriptionId: stored.subscriptionId,
     checkedAt: Date.now()
   };
   await writePro(userId, next);
-  return { pro: paying, subscriptionId: next.subscriptionId, checkedAt: next.checkedAt };
+  return {
+    pro: tier === 'pro',
+    tier,
+    subscriptionId: next.subscriptionId,
+    checkedAt: next.checkedAt
+  };
 }
 
 export async function getProStatus(userId: string | null): Promise<ProStatus> {
-  if (!userId) return { pro: false, subscriptionId: null, checkedAt: null };
+  if (!userId) {
+    return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: null };
+  }
   const stored = await readPro(userId);
-  if (!stored) return { pro: false, subscriptionId: null, checkedAt: null };
+  if (!stored) {
+    return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: null };
+  }
   return revalidate(userId, stored);
+}
+
+/** Full membership tier (basic for guests and unpaid accounts). */
+export async function getTier(userId: string | null): Promise<PlanTierStatus> {
+  return (await getProStatus(userId)).tier;
 }

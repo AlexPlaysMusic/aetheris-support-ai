@@ -60,7 +60,11 @@ function countPromptImages(prompt: LanguageModelV1Prompt): number {
 
 function buildDemoReply(userText: string, modelId: string, imageCount: number): string {
   const quoted = userText.length > 160 ? `${userText.slice(0, 160)}…` : userText;
-  const edition = modelId.includes('pro') ? 'Pro (v1.0)' : 'Basic (Free)';
+  const edition = modelId.includes('pro')
+    ? 'Pro'
+    : modelId.includes('asteroid')
+      ? 'Asteroid'
+      : 'Basic (Free)';
   return [
     `You're running **Aetheris ${edition}** in **demo mode** — no external API connected yet.`,
     '',

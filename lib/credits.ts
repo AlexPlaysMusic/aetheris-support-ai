@@ -20,14 +20,47 @@
 
 export const CREDIT_DAILY_GUEST = 20;
 export const CREDIT_DAILY_USER = 100;
+export const CREDIT_DAILY_ASTEROID = 500;
 export const CREDIT_DAILY_PRO = 1000;
 
 export const CREDIT_COST_TEXT = 1;
 export const CREDIT_COST_IMAGE = 2;
 export const CREDIT_COST_FILE = 1;
+export const CREDIT_COST_BASIC_MESSAGE = 1;
+export const CREDIT_COST_ASTEROID_MESSAGE = 2;
 export const CREDIT_COST_PRO_MESSAGE = 5;
 export const CREDIT_COST_IMAGE_GEN = 10;
 export const CREDIT_COST_IMAGE_GEN_PRO = 5;
+export const CREDIT_COST_IMAGE_GEN_ASTEROID = 7;
+
+export const HISTORY_LIMIT_BASIC = 30;
+export const HISTORY_LIMIT_ASTEROID = 60;
+export const HISTORY_LIMIT_PRO = 100;
+
+export const INSTRUCTIONS_LIMIT_BASIC = 1000;
+export const INSTRUCTIONS_LIMIT_ASTEROID = 2000;
+export const INSTRUCTIONS_LIMIT_PRO = 4000;
+
+export type PlanTier = 'basic' | 'asteroid' | 'pro';
+
+/** Daily allowance for a tier (guests always use the guest budget). */
+export function dailyAllowance(tier: PlanTier, signedIn: boolean): number {
+  if (tier === 'pro') return CREDIT_DAILY_PRO;
+  if (tier === 'asteroid') return CREDIT_DAILY_ASTEROID;
+  return signedIn ? CREDIT_DAILY_USER : CREDIT_DAILY_GUEST;
+}
+
+export function historyLimit(tier: PlanTier): number {
+  if (tier === 'pro') return HISTORY_LIMIT_PRO;
+  if (tier === 'asteroid') return HISTORY_LIMIT_ASTEROID;
+  return HISTORY_LIMIT_BASIC;
+}
+
+export function instructionsLimit(tier: PlanTier): number {
+  if (tier === 'pro') return INSTRUCTIONS_LIMIT_PRO;
+  if (tier === 'asteroid') return INSTRUCTIONS_LIMIT_ASTEROID;
+  return INSTRUCTIONS_LIMIT_BASIC;
+}
 
 export type CreditIdentity = {
   /** localStorage key for this identity's balance. */
@@ -75,15 +108,17 @@ export function remainingCredits(identity: CreditIdentity): number {
 }
 
 export function messageCost(opts: {
-  pro: boolean;
+  tier: PlanTier;
   images: number;
   files: number;
 }): number {
-  return (
-    (opts.pro ? CREDIT_COST_PRO_MESSAGE : CREDIT_COST_TEXT) +
-    opts.images * CREDIT_COST_IMAGE +
-    opts.files * CREDIT_COST_FILE
-  );
+  const base =
+    opts.tier === 'pro'
+      ? CREDIT_COST_PRO_MESSAGE
+      : opts.tier === 'asteroid'
+        ? CREDIT_COST_ASTEROID_MESSAGE
+        : CREDIT_COST_TEXT;
+  return base + opts.images * CREDIT_COST_IMAGE + opts.files * CREDIT_COST_FILE;
 }
 
 /**

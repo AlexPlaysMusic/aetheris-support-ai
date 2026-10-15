@@ -1,12 +1,12 @@
-import { ensureProPlan, paypalConfigured, paypalEnv } from '@/lib/paypal';
+import { ensurePlan, paypalConfigured, paypalEnv, type PaidTier } from '@/lib/paypal';
 import { getSharedRedis } from '@/lib/credit-server';
 import { limitRequest } from '@/lib/rate-limit';
 
 const memoryPlan = new Map<string, string>();
 
 /**
- * Returns the Pro billing plan id, creating the $20/mo product+plan in
- * PayPal on first call. The id is cached (Redis, else memory).
+ * Returns a tier's billing plan id (?tier=asteroid|pro), creating the
+ * product+plan in PayPal on first call. The id is cached (Redis, else memory).
  */
 export async function GET(req: Request) {
   const limited = limitRequest(req, { key: 'billing-plan', limit: 30, windowMs: 60_000 });
@@ -17,6 +17,8 @@ export async function GET(req: Request) {
       { status: 503 }
     );
   }
+  const requested = new URL(req.url).searchParams.get('tier');
+  const tier: PaidTier = requested === 'asteroid' ? 'asteroid' : 'pro';
   const redis = getSharedRedis();
   const store = {
     get: async (key: string): Promise<string | null> => {
@@ -42,8 +44,8 @@ export async function GET(req: Request) {
     }
   };
   try {
-    const planId = await ensureProPlan(store);
-    return Response.json({ planId, env: paypalEnv() });
+    const planId = await ensurePlan(tier, store);
+    return Response.json({ planId, tier, env: paypalEnv() });
   } catch (err) {
     console.error('[aetheris/billing-plan] error:', err);
     return Response.json(

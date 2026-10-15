@@ -9,13 +9,13 @@ import {
   resolveCustomModelId
 } from '@/lib/custom-llm';
 import { createDemoChatModel } from '@/lib/demo-llm';
-import { messageCost } from '@/lib/credits';
+import { instructionsLimit, messageCost } from '@/lib/credits';
 import {
   strictIdentityFor,
   strictRefund,
   strictSpend
 } from '@/lib/credit-server';
-import { getProStatus } from '@/lib/pro';
+import { getTier } from '@/lib/pro';
 import { limitRequest } from '@/lib/rate-limit';
 
 export const maxDuration = 30;
@@ -31,7 +31,7 @@ Rules:
 - When the user attaches photos, PDFs, or text files, answer from their actual content.
 - Never produce sexual or explicit content, including erotica, nudes, or sexual descriptions of anyone. If asked, refuse briefly in one sentence and offer a different topic.`;
 
-type ModelSelect = 'aetheris-basic' | 'aetheris-pro';
+type ModelSelect = 'aetheris-basic' | 'aetheris-asteroid' | 'aetheris-pro';
 
 function resolveOpenAiModel(select: unknown): 'gpt-4o-mini' | 'gpt-4o' {
   if (select === 'aetheris-pro') return 'gpt-4o';
@@ -39,12 +39,17 @@ function resolveOpenAiModel(select: unknown): 'gpt-4o-mini' | 'gpt-4o' {
 }
 
 function resolveDemoModel(select: unknown): string {
-  return select === 'aetheris-pro' ? 'aetheris-pro-demo' : 'aetheris-basic-demo';
+  if (select === 'aetheris-pro') return 'aetheris-pro-demo';
+  if (select === 'aetheris-asteroid') return 'aetheris-asteroid-demo';
+  return 'aetheris-basic-demo';
 }
 
 function resolveGeminiModel(select: unknown): string {
   if (select === 'aetheris-pro') {
     return (process.env.GEMINI_PRO_MODEL ?? 'gemini-3.8-flash').trim() || 'gemini-3.8-flash';
+  }
+  if (select === 'aetheris-asteroid') {
+    return (process.env.GEMINI_ASTEROID_MODEL ?? 'gemini-3.5-flash').trim() || 'gemini-3.5-flash';
   }
   return (process.env.GEMINI_BASIC_MODEL ?? 'gemini-3.1-flash-lite').trim() || 'gemini-3.1-flash-lite';
 }
@@ -131,6 +136,7 @@ export async function GET() {
     return Response.json({
       provider: 'gemini',
       basicModel: (process.env.GEMINI_BASIC_MODEL ?? 'gemini-3.1-flash-lite').trim(),
+      asteroidModel: (process.env.GEMINI_ASTEROID_MODEL ?? 'gemini-3.5-flash').trim(),
       proModel: (process.env.GEMINI_PRO_MODEL ?? 'gemini-3.8-flash').trim(),
       hasKey: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY)
     });
@@ -171,17 +177,20 @@ export async function POST(req: Request) {
       return Response.json({ error: 'No messages provided.' }, { status: 400 });
     }
 
-    // Aetheris Pro requires a paid membership — verified server-side so it
-    // can't be reached by hand-crafted requests bypassing the UI.
-    let proMember = false;
-    if (modelSelect === 'aetheris-pro') {
-      proMember = (await getProStatus(sessionUserId)).pro;
-      if (!proMember) {
-        return Response.json(
-          { error: 'Aetheris Pro is locked. Please use Aetheris Basic.' },
-          { status: 403 }
-        );
-      }
+    // Paid models require membership — verified server-side so they can't
+    // be reached by hand-crafted requests bypassing the UI.
+    const tier = await getTier(sessionUserId);
+    if (modelSelect === 'aetheris-pro' && tier !== 'pro') {
+      return Response.json(
+        { error: 'Aetheris Pro is locked. Please use Aetheris Basic.' },
+        { status: 403 }
+      );
+    }
+    if (modelSelect === 'aetheris-asteroid' && tier === 'basic') {
+      return Response.json(
+        { error: 'Aetheris Asteroid requires a membership. Please use Aetheris Basic.' },
+        { status: 403 }
+      );
     }
 
     // Strict server-side metering (no-op unless Redis is configured).
@@ -190,7 +199,7 @@ export async function POST(req: Request) {
     const last = messages[messages.length - 1] as Record<string, unknown>;
     const imageCount = imageUrlsFrom(last['experimental_attachments']).length;
     const cost = messageCost({
-      pro: proMember,
+      tier: modelSelect === 'aetheris-pro' || modelSelect === 'aetheris-asteroid' ? tier : 'basic',
       images: imageCount,
       files: 0
     });
@@ -209,9 +218,9 @@ export async function POST(req: Request) {
     }
     spent = cost;
 
-    // Personalization from the client (length-capped, temperature-clamped).
+    // Personalization from the client (tier-capped length, clamped temperature).
     const rawExtra = typeof body?.systemExtra === 'string' ? body.systemExtra : '';
-    const systemExtra = rawExtra.trim().slice(0, 1000);
+    const systemExtra = rawExtra.trim().slice(0, instructionsLimit(tier));
     const rawTemp = body?.temperature;
     const temperature =
       typeof rawTemp === 'number' && Number.isFinite(rawTemp)

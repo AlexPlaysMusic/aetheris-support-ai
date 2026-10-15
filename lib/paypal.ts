@@ -90,24 +90,49 @@ async function paypalFetch(
   return { status: res.status, data };
 }
 
-const PLAN_KEY = 'aetheris:paypal:plan';
+export type PaidTier = 'asteroid' | 'pro';
+
+const TIER_PLANS: Record<
+  PaidTier,
+  { product: string; plan: string; price: string }
+> = {
+  asteroid: {
+    product: 'Aetheris Asteroid',
+    plan: 'Aetheris Asteroid Monthly',
+    price: '10.00'
+  },
+  pro: {
+    product: 'Aetheris Pro',
+    plan: 'Aetheris Pro Monthly',
+    price: '20.00'
+  }
+};
+
+function planKey(tier: PaidTier): string {
+  return `aetheris:paypal:plan:${tier}`;
+}
 
 /**
- * Ensure the $20/mo Pro product+plan exist, creating them once.
+ * Ensure a tier's product+plan exist, creating them once.
  * getPlanStore abstracts persistence (Redis in prod, memory in tests).
  */
-export async function ensureProPlan(store: {
-  get: (key: string) => Promise<string | null>;
-  set: (key: string, value: string) => Promise<void>;
-}): Promise<string> {
-  const existing = await store.get(PLAN_KEY);
+export async function ensurePlan(
+  tier: PaidTier,
+  store: {
+    get: (key: string) => Promise<string | null>;
+    set: (key: string, value: string) => Promise<void>;
+  }
+): Promise<string> {
+  const key = planKey(tier);
+  const existing = await store.get(key);
   if (existing) return existing;
+  const cfg = TIER_PLANS[tier];
 
   const product = await paypalFetch('/v1/catalogs/products', {
     method: 'POST',
     body: JSON.stringify({
-      name: 'Aetheris Pro',
-      description: 'Aetheris Pro monthly membership.',
+      name: cfg.product,
+      description: `${cfg.product} monthly membership.`,
       type: 'SERVICE',
       category: 'SOFTWARE'
     })
@@ -121,8 +146,8 @@ export async function ensureProPlan(store: {
     method: 'POST',
     body: JSON.stringify({
       product_id: productId,
-      name: 'Aetheris Pro Monthly',
-      description: 'Aetheris Pro — $20/month, cancel anytime.',
+      name: cfg.plan,
+      description: `${cfg.plan} — $${cfg.price}/month, cancel anytime.`,
       status: 'ACTIVE',
       billing_cycles: [
         {
@@ -131,7 +156,7 @@ export async function ensureProPlan(store: {
           sequence: 1,
           total_cycles: 0,
           pricing_scheme: {
-            fixed_price: { value: '20.00', currency_code: 'USD' }
+            fixed_price: { value: cfg.price, currency_code: 'USD' }
           }
         }
       ],
@@ -146,12 +171,20 @@ export async function ensureProPlan(store: {
   if (plan.status !== 201 || typeof planId !== 'string') {
     throw new Error('Could not create the PayPal billing plan.');
   }
-  await store.set(PLAN_KEY, planId);
+  await store.set(key, planId);
   return planId;
 }
 
+/** Backwards-compatible alias (Pro tier). */
+export async function ensureProPlan(store: {
+  get: (key: string) => Promise<string | null>;
+  set: (key: string, value: string) => Promise<void>;
+}): Promise<string> {
+  return ensurePlan('pro', store);
+}
+
 export type SubscriptionState =
-  | { ok: true; status: string }
+  | { ok: true; status: string; planId: string | null }
   | { ok: false; error: string };
 
 /** Fetch a subscription's live status from PayPal. */
@@ -171,8 +204,17 @@ export async function getSubscription(
     if (res.status !== 200) {
       return { ok: false, error: `PayPal lookup failed (${res.status}).` };
     }
-    const status = (res.data as { status?: unknown } | null)?.status;
-    return { ok: true, status: typeof status === 'string' ? status : 'UNKNOWN' };
+    const record = (res.data as {
+      status?: unknown;
+      plan_id?: unknown;
+    } | null) ?? {};
+    const status = record.status;
+    const planId = record.plan_id;
+    return {
+      ok: true,
+      status: typeof status === 'string' ? status : 'UNKNOWN',
+      planId: typeof planId === 'string' ? planId : null
+    };
   } catch (err) {
     return {
       ok: false,
