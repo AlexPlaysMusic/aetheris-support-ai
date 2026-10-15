@@ -54,8 +54,8 @@ export default function PrivacyPage() {
               enforce fair-use limits. Counters expire automatically.
             </li>
             <li>
-              <strong className="text-slate-100">If you join the Pro waitlist:</strong> your
-              email address, used only to contact you about Pro.
+              <strong className="text-slate-100">If you buy Pro:</strong> PayPal
+              handles payment; we store only your Pro status, never card details.
             </li>
           </ul>
         </Section>

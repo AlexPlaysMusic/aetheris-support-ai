@@ -893,7 +893,6 @@ export default function ChatPage() {
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [joinedWaitlist, setJoinedWaitlist] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -960,7 +959,6 @@ export default function ChatPage() {
   const [payPalPlanId, setPayPalPlanId] = useState<string | null>(null);
   const [billingBusy, setBillingBusy] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
-  const [showWaitlistForm, setShowWaitlistForm] = useState(false);
 
   const PAYPAL_CLIENT_ID = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? '';
   const [sendError, setSendError] = useState<string | null>(null);
@@ -1374,15 +1372,6 @@ export default function ChatPage() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, []);
-
-  /* hydrate local prefs (client-only: localStorage is unavailable at prerender) */
-  useEffect(() => {
-    try {
-      setJoinedWaitlist(localStorage.getItem('aetheris-pro-waitlist') === '1');
-    } catch {
-      /* private mode — ignore */
-    }
   }, []);
 
   /* clear transient timers on unmount */
@@ -1952,64 +1941,6 @@ export default function ChatPage() {
       return next;
     });
   };
-
-  const joinWaitlist = () => {
-    setJoinedWaitlist(true);
-    try {
-      localStorage.setItem('aetheris-pro-waitlist', '1');
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const [waitlistEmail, setWaitlistEmail] = useState('');
-  const [waitlistStatus, setWaitlistStatus] = useState<
-    'idle' | 'sending' | 'done' | 'error'
-  >('idle');
-  const [waitlistPosition, setWaitlistPosition] = useState<number | null>(null);
-  const [waitlistError, setWaitlistError] = useState<string | null>(null);
-
-  const submitWaitlist = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const email = waitlistEmail.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setWaitlistError('Enter a valid email address.');
-      setWaitlistStatus('error');
-      return;
-    }
-    setWaitlistStatus('sending');
-    setWaitlistError(null);
-    void fetch('/api/waitlist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    })
-      .then(async (r) => {
-        const d = (await r.json().catch(() => null)) as Record<
-          string,
-          unknown
-        > | null;
-        if (!r.ok) {
-          const message =
-            (d && typeof d['message'] === 'string' && d['message']) ||
-            'Could not join the waitlist. Try again.';
-          throw new Error(message);
-        }
-        setWaitlistPosition(
-          d && typeof d['position'] === 'number' ? d['position'] : null
-        );
-        setWaitlistStatus('done');
-        joinWaitlist();
-      })
-      .catch((err: unknown) => {
-        setWaitlistError(
-          err instanceof Error ? err.message : 'Could not join. Try again.'
-        );
-        setWaitlistStatus('error');
-      });
-  };
-
-
 
   return (
     <div
@@ -3019,8 +2950,8 @@ export default function ChatPage() {
             </button>
           ) : PAYPAL_CLIENT_ID === '' ? (
             <p className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-[12.5px] leading-6 text-slate-400">
-              Card payments aren&apos;t enabled on this server yet — join the
-              waitlist below and we&apos;ll email you the moment checkout opens.
+              Card payments aren&apos;t enabled on this server yet — check back
+              soon.
             </p>
           ) : (
             <>
@@ -3063,53 +2994,7 @@ export default function ChatPage() {
                   </p>
                 )
               )}
-              <button
-                type="button"
-                onClick={() => setShowWaitlistForm((v) => !v)}
-                className="mt-1 w-full text-center text-[12px] font-medium text-slate-400 underline underline-offset-2 transition hover:text-slate-200"
-              >
-                {showWaitlistForm ? 'Hide the waitlist' : 'Not ready? Join the waitlist instead'}
-              </button>
             </>
-          )}
-          {!isPro && (showWaitlistForm || PAYPAL_CLIENT_ID === '') && (
-            joinedWaitlist || waitlistStatus === 'done' ? (
-              <div className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm font-semibold text-slate-200">
-                <Check size={16} className="text-emerald-300" /> You&apos;re on
-                the waitlist
-                {waitlistPosition !== null && (
-                  <span className="text-slate-400">· #{waitlistPosition} in line</span>
-                )}
-              </div>
-            ) : (
-              <form onSubmit={submitWaitlist} className="mt-3">
-                <label
-                  htmlFor="waitlist-email"
-                  className="mb-1.5 block text-[12px] font-medium text-slate-300"
-                >
-                  Email for your invite
-                </label>
-                <input
-                  id="waitlist-email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={waitlistEmail}
-                  onChange={(e) => setWaitlistEmail(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-abyss px-3 py-2.5 text-[14px] text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none"
-                />
-                {waitlistStatus === 'error' && waitlistError && (
-                  <p className="mt-1.5 text-[12px] text-red-300">{waitlistError}</p>
-                )}
-                <button
-                  type="submit"
-                  disabled={waitlistStatus === 'sending'}
-                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#00F2FE] px-3 py-2.5 text-sm font-semibold text-[#06121a] shadow-glow transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
-                >
-                  {waitlistStatus === 'sending' ? 'Joining…' : 'Join Pro Waitlist'}
-                </button>
-              </form>
-            )
           )}
           <p className="mt-2.5 text-center text-[11px] text-slate-500">
             {isPro
