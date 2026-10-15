@@ -1077,6 +1077,11 @@ export default function ChatPage() {
   const [outOfCredits, setOutOfCredits] = useState(false);
   const [isPro, setIsPro] = useState(false);
   const [tier, setTier] = useState<PlanTier>('basic');
+  const [payMethods, setPayMethods] = useState<{
+    paypal: boolean;
+    stripe: boolean;
+  } | null>(null);
+  const [payMethod, setPayMethod] = useState<'paypal' | 'card'>('paypal');
   const [payPalPlans, setPayPalPlans] = useState<{
     asteroid: string | null;
     pro: string | null;
@@ -1219,6 +1224,31 @@ export default function ChatPage() {
     );
   }, [tier]);
 
+  /* fetch available payment rails when the upgrade dialog opens */
+  useEffect(() => {
+    if (!upgradeOpen || isGuest) return;
+    let cancelled = false;
+    void fetch('/api/billing/methods')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: unknown) => {
+        if (!cancelled && d !== null && typeof d === 'object') {
+          const record = d as Record<string, unknown>;
+          const methods = {
+            paypal: record['paypal'] === true,
+            stripe: record['stripe'] === true
+          };
+          setPayMethods(methods);
+          setPayMethod(methods.stripe && !methods.paypal ? 'card' : 'paypal');
+        }
+      })
+      .catch(() => {
+        /* offline — dialog shows the fallback note */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [upgradeOpen, isGuest]);
+
   /* fetch both PayPal plans when the upgrade dialog opens */
   useEffect(() => {
     if (!upgradeOpen || isPro || PAYPAL_CLIENT_ID === '') return;
@@ -1292,6 +1322,99 @@ export default function ChatPage() {
       .finally(() => {
         setBillingBusy(false);
       });
+  };
+
+  const startCardCheckout = (planTier: 'asteroid' | 'pro') => {
+    setBillingBusy(true);
+    setBillingError(null);
+    void fetch('/api/billing/stripe/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier: planTier })
+    })
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!r.ok || !d || typeof d['url'] !== 'string') {
+          throw new Error(
+            (d && typeof d['error'] === 'string' && d['error']) ||
+              'Could not start checkout.'
+          );
+        }
+        window.location.href = d['url'] as string;
+      })
+      .catch((err: unknown) => {
+        setBillingError(
+          err instanceof Error ? err.message : 'Checkout failed.'
+        );
+        setBillingBusy(false);
+      });
+  };
+
+  const effectivePayMethod: 'paypal' | 'card' =
+    payMethods && payMethods.paypal && payMethods.stripe
+      ? payMethod
+      : payMethods && payMethods.stripe
+        ? 'card'
+        : 'paypal';
+
+  /** Pay / current-plan block for one plan card (shared by both rails). */
+  const planAction = (planTier: 'asteroid' | 'pro', price: string) => {
+    if (tier === planTier) {
+      return (
+        <p className="flex items-center justify-center gap-1.5 text-[13px] font-semibold text-emerald-200">
+          <Check size={15} /> Current plan
+        </p>
+      );
+    }
+    if (effectivePayMethod === 'card') {
+      return (
+        <>
+          {tier === 'asteroid' && planTier === 'pro' && (
+            <p className="mb-2 text-[11.5px] leading-5 text-slate-400">
+              Switching starts a new Pro subscription — remember to cancel
+              Asteroid to avoid double billing.
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => startCardCheckout(planTier)}
+            disabled={billingBusy}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-3 py-2.5 text-sm font-semibold text-[#06121a] transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-60"
+          >
+            {billingBusy ? 'Starting checkout…' : `Subscribe with card — ${price}`}
+          </button>
+        </>
+      );
+    }
+    const planId = payPalPlans[planTier];
+    return (
+      <>
+        {tier === 'asteroid' && planTier === 'pro' && (
+          <p className="mb-2 text-[11.5px] leading-5 text-slate-400">
+            Switching starts a new Pro subscription — remember to cancel
+            Asteroid in PayPal to avoid double billing.
+          </p>
+        )}
+        {planId ? (
+          <PlanPayButton
+            planId={planId}
+            tier={planTier}
+            disabled={billingBusy}
+            onSubscribed={confirmSubscription}
+            onFailed={setBillingError}
+          />
+        ) : (
+          !billingError && (
+            <p className="text-center text-[12.5px] text-slate-500">
+              Loading secure checkout…
+            </p>
+          )
+        )}
+      </>
+    );
   };
 
   /* reconcile the header balance with the authoritative server ledger */
@@ -3119,7 +3242,11 @@ export default function ChatPage() {
             >
               <LogIn size={15} /> Sign in to subscribe
             </button>
-          ) : PAYPAL_CLIENT_ID === '' ? (
+          ) : !payMethods ? (
+            <p className="mt-2 text-center text-[12.5px] text-slate-500">
+              Loading payment options…
+            </p>
+          ) : !payMethods.paypal && !payMethods.stripe ? (
             <p className="mt-2 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-[12.5px] leading-6 text-slate-400">
               Card payments aren&apos;t enabled on this server yet — check back
               soon.
@@ -3129,14 +3256,68 @@ export default function ChatPage() {
               {billingError && (
                 <p className="mb-2 text-[12px] text-red-300">{billingError}</p>
               )}
-              <PayPalScriptProvider
-                options={{
-                  clientId: PAYPAL_CLIENT_ID,
-                  components: 'buttons',
-                  intent: 'subscription',
-                  vault: true
-                }}
-              >
+              {payMethods.paypal && payMethods.stripe && (
+                <div
+                  className="mb-3 grid grid-cols-2 gap-1.5 rounded-xl border border-white/10 bg-abyss p-1"
+                  role="group"
+                  aria-label="Payment method"
+                >
+                  {(['paypal', 'card'] as const).map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setPayMethod(method)}
+                      aria-pressed={effectivePayMethod === method}
+                      className={`rounded-lg px-2 py-1.5 text-[12.5px] font-semibold transition ${
+                        effectivePayMethod === method
+                          ? 'bg-white/10 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {method === 'paypal' ? 'PayPal' : 'Card'}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {effectivePayMethod === 'paypal' ? (
+                <PayPalScriptProvider
+                  options={{
+                    clientId: PAYPAL_CLIENT_ID,
+                    components: 'buttons',
+                    intent: 'subscription',
+                    vault: true
+                  }}
+                >
+                  <div className="space-y-3">
+                    <PlanCard
+                      name="Aetheris Asteroid"
+                      price="$10 / month"
+                      features={[
+                        'Balanced v3.5 model for everyday+ chats',
+                        '500 daily credits',
+                        'Images at 7 credits',
+                        'Up to 60 saved chats'
+                      ]}
+                      owned={tier === 'asteroid'}
+                    >
+                      {planAction('asteroid', '$10 / month')}
+                    </PlanCard>
+                    <PlanCard
+                      name="Aetheris Pro"
+                      price="$20 / month"
+                      features={[
+                        'Strongest reasoning model',
+                        '1,000 daily credits for heavy use',
+                        'Half-price images (5 credits)',
+                        'Up to 100 saved chats'
+                      ]}
+                      owned={tier === 'pro'}
+                    >
+                      {planAction('pro', '$20 / month')}
+                    </PlanCard>
+                  </div>
+                </PayPalScriptProvider>
+              ) : (
                 <div className="space-y-3">
                   <PlanCard
                     name="Aetheris Asteroid"
@@ -3149,74 +3330,29 @@ export default function ChatPage() {
                     ]}
                     owned={tier === 'asteroid'}
                   >
-                    {tier === 'asteroid' ? (
-                      <p className="flex items-center justify-center gap-1.5 text-[13px] font-semibold text-emerald-200">
-                        <Check size={15} /> Current plan
-                      </p>
-                    ) : payPalPlans.asteroid ? (
-                      <PlanPayButton
-                        planId={payPalPlans.asteroid}
-                        tier="asteroid"
-                        disabled={billingBusy}
-                        onSubscribed={confirmSubscription}
-                        onFailed={setBillingError}
-                      />
-                    ) : (
-                      !billingError && (
-                        <p className="text-center text-[12.5px] text-slate-500">
-                          Loading secure checkout…
-                        </p>
-                      )
-                    )}
+                    {planAction('asteroid', '$10 / month')}
                   </PlanCard>
                   <PlanCard
                     name="Aetheris Pro"
                     price="$20 / month"
                     features={[
-                      'Strongest v4 reasoning model',
+                      'Strongest reasoning model',
                       '1,000 daily credits for heavy use',
                       'Half-price images (5 credits)',
                       'Up to 100 saved chats'
                     ]}
                     owned={tier === 'pro'}
                   >
-                    {tier === 'pro' ? (
-                      <p className="flex items-center justify-center gap-1.5 text-[13px] font-semibold text-emerald-200">
-                        <Check size={15} /> Current plan
-                      </p>
-                    ) : (
-                      <>
-                        {tier === 'asteroid' && (
-                          <p className="mb-2 text-[11.5px] leading-5 text-slate-400">
-                            Switching starts a new Pro subscription — remember to
-                            cancel Asteroid in PayPal to avoid double billing.
-                          </p>
-                        )}
-                        {payPalPlans.pro ? (
-                          <PlanPayButton
-                            planId={payPalPlans.pro}
-                            tier="pro"
-                            disabled={billingBusy}
-                            onSubscribed={confirmSubscription}
-                            onFailed={setBillingError}
-                          />
-                        ) : (
-                          !billingError && (
-                            <p className="text-center text-[12.5px] text-slate-500">
-                              Loading secure checkout…
-                            </p>
-                          )
-                        )}
-                      </>
-                    )}
+                    {planAction('pro', '$20 / month')}
                   </PlanCard>
                 </div>
-              </PayPalScriptProvider>
+              )}
             </>
           )}
           <p className="mt-2.5 text-center text-[11px] text-slate-500">
-            Secure checkout by PayPal. Cancel anytime — receipts live in your
-            PayPal account.
+            Secure checkout by{' '}
+            {effectivePayMethod === 'card' ? 'Stripe' : 'PayPal'}. Cancel
+            anytime.
           </p>
         </ModalShell>
       )}

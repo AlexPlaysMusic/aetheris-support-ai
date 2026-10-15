@@ -80,6 +80,19 @@ async function writePro(userId: string, value: StoredPro): Promise<void> {
   memoryPro.set(userId, value);
 }
 
+/** Drop an account back to Basic (cancelled / expired upstream). */
+export async function clearMembership(userId: string): Promise<void> {
+  const redis = getSharedRedis();
+  if (redis) {
+    try {
+      await redis.del(PRO_KEY_PREFIX + userId);
+    } catch {
+      /* ignore */
+    }
+  }
+  memoryPro.delete(userId);
+}
+
 /** Mark an account paid after a verified subscription approval. */
 export async function setTierActive(
   userId: string,
