@@ -11,12 +11,14 @@ import {
   CREDIT_DAILY_PRO,
   CREDIT_DAILY_USER,
   CREDIT_COST_IMAGE_GEN,
+  CREDIT_COST_IMAGE_GEN_PRO,
   creditIdentity,
   messageCost,
   refundCredits,
   remainingCredits,
   spendCredits
 } from '@/lib/credits';
+import { PayPalButtons, PayPalScriptProvider } from '@paypal/react-paypal-js';
 import { isBlockedImagePrompt } from '@/lib/safety';
 import { buildShareLink, messageImages } from '@/lib/share';
 import {
@@ -954,6 +956,13 @@ export default function ChatPage() {
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [creditsLeft, setCreditsLeft] = useState(CREDIT_DAILY_GUEST);
   const [outOfCredits, setOutOfCredits] = useState(false);
+  const [isPro, setIsPro] = useState(false);
+  const [payPalPlanId, setPayPalPlanId] = useState<string | null>(null);
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [showWaitlistForm, setShowWaitlistForm] = useState(false);
+
+  const PAYPAL_CLIENT_ID = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? '';
   const [sendError, setSendError] = useState<string | null>(null);
   const lastSpent = useRef(0);
   const autoRetried = useRef(false);
@@ -1043,6 +1052,102 @@ export default function ChatPage() {
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const msgCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* Pro membership follows the signed-in account (verified server-side) */
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      setIsPro(false);
+      return;
+    }
+    let cancelled = false;
+    void fetch('/api/billing/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: unknown) => {
+        if (!cancelled && d !== null && typeof d === 'object') {
+          setIsPro((d as { pro?: unknown }).pro === true);
+        }
+      })
+      .catch(() => {
+        /* offline — stay non-Pro */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  /* a locked-out Pro selection always falls back to Basic */
+  useEffect(() => {
+    if (!isPro) {
+      setSelectedModel((current) =>
+        current === 'aetheris-pro' ? 'aetheris-basic' : current
+      );
+    }
+  }, [isPro]);
+
+  /* fetch the PayPal plan when the upgrade dialog opens */
+  useEffect(() => {
+    if (!upgradeOpen || isPro || PAYPAL_CLIENT_ID === '') return;
+    let cancelled = false;
+    setBillingError(null);
+    void fetch('/api/billing/plan')
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!r.ok) {
+          throw new Error(
+            (d && typeof d['error'] === 'string' && d['error']) ||
+              'Billing is not available right now.'
+          );
+        }
+        if (!cancelled && d && typeof d['planId'] === 'string') {
+          setPayPalPlanId(d['planId'] as string);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setBillingError(
+            err instanceof Error ? err.message : 'Billing is unavailable.'
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [upgradeOpen, isPro, PAYPAL_CLIENT_ID]);
+
+  const confirmSubscription = (subscriptionId: string) => {
+    setBillingBusy(true);
+    setBillingError(null);
+    void fetch('/api/billing/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscriptionId })
+    })
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!r.ok || !d || d['pro'] !== true) {
+          throw new Error(
+            (d && typeof d['error'] === 'string' && d['error']) ||
+              'Subscription could not be confirmed.'
+          );
+        }
+        setIsPro(true);
+        setUpgradeOpen(false);
+      })
+      .catch((err: unknown) => {
+        setBillingError(
+          err instanceof Error ? err.message : 'Subscription failed.'
+        );
+      })
+      .finally(() => {
+        setBillingBusy(false);
+      });
+  };
 
   /* reconcile the header balance with the authoritative server ledger */
   const resyncServerCredits = useCallback(() => {
@@ -1576,6 +1681,7 @@ export default function ChatPage() {
   };
 
   const generateImage = (prompt: string) => {
+    const imageCost = isPro ? CREDIT_COST_IMAGE_GEN_PRO : CREDIT_COST_IMAGE_GEN;
     autoRetried.current = false;
     setSendError(null);
     if (retryTimer.current) {
@@ -1610,7 +1716,7 @@ export default function ChatPage() {
           );
           return;
         }
-        const remaining = spendCredits(creditId, CREDIT_COST_IMAGE_GEN);
+        const remaining = spendCredits(creditId, imageCost);
         if (remaining === null) {
           lastSpent.current = 0;
           setOutOfCredits(true);
@@ -1950,52 +2056,67 @@ export default function ChatPage() {
                   role="listbox"
                   className="animate-menu absolute right-0 top-11 w-64 overflow-hidden rounded-xl border border-white/10 bg-surface shadow-xl shadow-black/50"
                 >
-                  {MODELS.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      role="option"
-                      aria-selected={m.id === selectedModel}
-                      title={m.locked ? 'Aetheris Pro is locked — see upgrade options' : undefined}
-                      onClick={() => {
-                        if (m.locked) {
-                          setModelOpen(false);
-                          setUpgradeOpen(true);
-                          return;
+                  {MODELS.map((m) => {
+                    const proItem = m.id === 'aetheris-pro';
+                    const locked = proItem ? !isPro : m.locked;
+                    const hint = proItem
+                      ? isPro
+                        ? 'Deeper reasoning · Code'
+                        : 'Locked · Coming soon'
+                      : m.hint;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        role="option"
+                        aria-selected={m.id === selectedModel}
+                        title={
+                          locked
+                            ? 'Aetheris Pro is locked — see upgrade options'
+                            : undefined
                         }
-                        setSelectedModel(m.id);
-                        setModelOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-white/5 ${
-                        m.id === selectedModel ? 'bg-cyan-400/[0.07]' : ''
-                      }`}
-                    >
-                      <span
-                        className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                          m.id === 'aetheris-pro'
-                            ? 'bg-white/10 text-slate-400'
-                            : 'bg-cyan-400/15 text-cyan-200'
+                        onClick={() => {
+                          if (locked) {
+                            setModelOpen(false);
+                            setUpgradeOpen(true);
+                            return;
+                          }
+                          setSelectedModel(m.id);
+                          setModelOpen(false);
+                        }}
+                        className={`flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-white/5 ${
+                          m.id === selectedModel ? 'bg-cyan-400/[0.07]' : ''
                         }`}
                       >
-                        {m.badge}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-white">
-                          {m.label}
+                        <span
+                          className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                            proItem
+                              ? isPro
+                                ? 'bg-violet-500/20 text-violet-200'
+                                : 'bg-white/10 text-slate-400'
+                              : 'bg-cyan-400/15 text-cyan-200'
+                          }`}
+                        >
+                          {m.badge}
                         </span>
-                        <span className="block truncate text-[11px] text-slate-400">
-                          {m.hint}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-medium text-white">
+                            {m.label}
+                          </span>
+                          <span className="block truncate text-[11px] text-slate-400">
+                            {hint}
+                          </span>
                         </span>
-                      </span>
-                      {m.locked ? (
-                        <Lock size={15} className="shrink-0 text-slate-500" />
-                      ) : (
-                        m.id === selectedModel && (
-                          <Check size={15} className="shrink-0 text-cyan-300" />
-                        )
-                      )}
-                    </button>
-                  ))}
+                        {locked ? (
+                          <Lock size={15} className="shrink-0 text-slate-500" />
+                        ) : (
+                          m.id === selectedModel && (
+                            <Check size={15} className="shrink-0 text-cyan-300" />
+                          )
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2008,6 +2129,14 @@ export default function ChatPage() {
               <Coins size={13} className="text-cyan-300" />
               {creditsLeft}
             </span>
+            {isPro && (
+              <span
+                title="Pro membership active"
+                className="shrink-0 rounded-full bg-violet-500/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-violet-200"
+              >
+                Pro
+              </span>
+            )}
 
             {status === 'authenticated' && session?.user ? (
               <div className="relative shrink-0" ref={accountMenuRef}>
@@ -2854,14 +2983,17 @@ export default function ChatPage() {
             <span className="rounded-full bg-cyan-400/15 px-2.5 py-1 text-[12px] font-bold text-cyan-200">
               $20 / month
             </span>
-            <span className="text-[12px] text-slate-400">Coming Soon — Join Waitlist</span>
+            <span className="text-[12px] text-slate-400">
+              {isPro ? 'Active on your account' : 'Cancel anytime'}
+            </span>
           </div>
           <ul className="mt-4 space-y-2.5">
             {[
               'Access to Aetheris v1.0 (Advanced Reasoning)',
               'Faster generation speeds & zero queue times',
               'Increased rate limits & file attachment support',
-              `${CREDIT_DAILY_PRO.toLocaleString()} daily credits for heavy use`
+              `${CREDIT_DAILY_PRO.toLocaleString()} daily credits for heavy use`,
+              'Half-price image generation (5 vs 10 credits)'
             ].map((feature) => (
               <li key={feature} className="flex items-start gap-2.5 text-[13.5px] text-slate-200">
                 <Check size={16} className="mt-0.5 shrink-0 text-cyan-300" />
@@ -2869,45 +3001,120 @@ export default function ChatPage() {
               </li>
             ))}
           </ul>
-          {joinedWaitlist || waitlistStatus === 'done' ? (
-            <div className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm font-semibold text-slate-200">
-              <Check size={16} className="text-emerald-300" /> You&apos;re on
-              the waitlist
-              {waitlistPosition !== null && (
-                <span className="text-slate-400">· #{waitlistPosition} in line</span>
-              )}
+          {isPro ? (
+            <div className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-violet-500/15 px-3 py-2.5 text-sm font-semibold text-violet-100">
+              <Check size={16} className="text-emerald-300" /> Pro is active —
+              manage or cancel anytime in PayPal.
             </div>
+          ) : isGuest ? (
+            <button
+              type="button"
+              onClick={() => {
+                setUpgradeOpen(false);
+                signIn('google');
+              }}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
+            >
+              <LogIn size={15} /> Sign in to subscribe
+            </button>
+          ) : PAYPAL_CLIENT_ID === '' ? (
+            <p className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-[12.5px] leading-6 text-slate-400">
+              Card payments aren&apos;t enabled on this server yet — join the
+              waitlist below and we&apos;ll email you the moment checkout opens.
+            </p>
           ) : (
-            <form onSubmit={submitWaitlist} className="mt-5">
-              <label
-                htmlFor="waitlist-email"
-                className="mb-1.5 block text-[12px] font-medium text-slate-300"
-              >
-                Email for your invite
-              </label>
-              <input
-                id="waitlist-email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@example.com"
-                value={waitlistEmail}
-                onChange={(e) => setWaitlistEmail(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-abyss px-3 py-2.5 text-[14px] text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none"
-              />
-              {waitlistStatus === 'error' && waitlistError && (
-                <p className="mt-1.5 text-[12px] text-red-300">{waitlistError}</p>
+            <>
+              {billingError && (
+                <p className="mt-4 text-[12px] text-red-300">{billingError}</p>
+              )}
+              {payPalPlanId ? (
+                <div className="mt-4">
+                  <PayPalScriptProvider
+                    options={{
+                      clientId: PAYPAL_CLIENT_ID,
+                      components: 'buttons',
+                      intent: 'subscription',
+                      vault: true
+                    }}
+                  >
+                    <PayPalButtons
+                      style={{ layout: 'vertical', color: 'gold', shape: 'rect', label: 'subscribe' }}
+                      disabled={billingBusy}
+                      createSubscription={(_data, actions) =>
+                        actions.subscription.create({ plan_id: payPalPlanId })
+                      }
+                      onApprove={(data) => {
+                        if (data.subscriptionID) {
+                          confirmSubscription(data.subscriptionID);
+                        } else {
+                          setBillingError('PayPal did not return a subscription. Try again.');
+                        }
+                        return Promise.resolve();
+                      }}
+                      onError={() => setBillingError('PayPal checkout failed. Try again.')}
+                      onCancel={() => setBillingError(null)}
+                    />
+                  </PayPalScriptProvider>
+                </div>
+              ) : (
+                !billingError && (
+                  <p className="mt-4 text-center text-[12.5px] text-slate-500">
+                    Loading secure checkout…
+                  </p>
+                )
               )}
               <button
-                type="submit"
-                disabled={waitlistStatus === 'sending'}
-                className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#00F2FE] px-3 py-2.5 text-sm font-semibold text-[#06121a] shadow-glow transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
+                type="button"
+                onClick={() => setShowWaitlistForm((v) => !v)}
+                className="mt-1 w-full text-center text-[12px] font-medium text-slate-400 underline underline-offset-2 transition hover:text-slate-200"
               >
-                {waitlistStatus === 'sending' ? 'Joining…' : 'Join Pro Waitlist'}
+                {showWaitlistForm ? 'Hide the waitlist' : 'Not ready? Join the waitlist instead'}
               </button>
-            </form>
+            </>
+          )}
+          {!isPro && (showWaitlistForm || PAYPAL_CLIENT_ID === '') && (
+            joinedWaitlist || waitlistStatus === 'done' ? (
+              <div className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2.5 text-sm font-semibold text-slate-200">
+                <Check size={16} className="text-emerald-300" /> You&apos;re on
+                the waitlist
+                {waitlistPosition !== null && (
+                  <span className="text-slate-400">· #{waitlistPosition} in line</span>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={submitWaitlist} className="mt-3">
+                <label
+                  htmlFor="waitlist-email"
+                  className="mb-1.5 block text-[12px] font-medium text-slate-300"
+                >
+                  Email for your invite
+                </label>
+                <input
+                  id="waitlist-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={waitlistEmail}
+                  onChange={(e) => setWaitlistEmail(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-abyss px-3 py-2.5 text-[14px] text-slate-100 placeholder:text-slate-500 focus:border-cyan-300/50 focus:outline-none"
+                />
+                {waitlistStatus === 'error' && waitlistError && (
+                  <p className="mt-1.5 text-[12px] text-red-300">{waitlistError}</p>
+                )}
+                <button
+                  type="submit"
+                  disabled={waitlistStatus === 'sending'}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#00F2FE] px-3 py-2.5 text-sm font-semibold text-[#06121a] shadow-glow transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
+                >
+                  {waitlistStatus === 'sending' ? 'Joining…' : 'Join Pro Waitlist'}
+                </button>
+              </form>
+            )
           )}
           <p className="mt-2.5 text-center text-[11px] text-slate-500">
-            No payment today. We only ever email you about Pro.
+            {isPro
+              ? 'Receipts and cancellation live in your PayPal account.'
+              : 'Secure checkout by PayPal. Cancel anytime.'}
           </p>
         </ModalShell>
       )}

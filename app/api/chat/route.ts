@@ -15,6 +15,7 @@ import {
   strictRefund,
   strictSpend
 } from '@/lib/credit-server';
+import { getProStatus } from '@/lib/pro';
 import { limitRequest } from '@/lib/rate-limit';
 
 export const maxDuration = 30;
@@ -170,13 +171,17 @@ export async function POST(req: Request) {
       return Response.json({ error: 'No messages provided.' }, { status: 400 });
     }
 
-    // Aetheris Pro is locked — reject it server-side so it can't be
-    // reached by hand-crafted requests bypassing the UI.
+    // Aetheris Pro requires a paid membership — verified server-side so it
+    // can't be reached by hand-crafted requests bypassing the UI.
+    let proMember = false;
     if (modelSelect === 'aetheris-pro') {
-      return Response.json(
-        { error: 'Aetheris Pro is locked. Please use Aetheris Basic.' },
-        { status: 403 }
-      );
+      proMember = (await getProStatus(sessionUserId)).pro;
+      if (!proMember) {
+        return Response.json(
+          { error: 'Aetheris Pro is locked. Please use Aetheris Basic.' },
+          { status: 403 }
+        );
+      }
     }
 
     // Strict server-side metering (no-op unless Redis is configured).
@@ -185,7 +190,7 @@ export async function POST(req: Request) {
     const last = messages[messages.length - 1] as Record<string, unknown>;
     const imageCount = imageUrlsFrom(last['experimental_attachments']).length;
     const cost = messageCost({
-      pro: false,
+      pro: proMember,
       images: imageCount,
       files: 0
     });

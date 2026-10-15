@@ -27,6 +27,7 @@ export const CREDIT_COST_IMAGE = 2;
 export const CREDIT_COST_FILE = 1;
 export const CREDIT_COST_PRO_MESSAGE = 5;
 export const CREDIT_COST_IMAGE_GEN = 10;
+export const CREDIT_COST_IMAGE_GEN_PRO = 5;
 
 export type CreditIdentity = {
   /** localStorage key for this identity's balance. */
