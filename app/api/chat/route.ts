@@ -15,7 +15,13 @@ import {
   strictRefund,
   strictSpend
 } from '@/lib/credit-server';
-import { getTier } from '@/lib/pro';
+import { resolveTier } from '@/lib/pro';
+import {
+  PLAN_COOKIE_NAME,
+  getCookieValue,
+  serializePlanCookie,
+  clearPlanCookieHeader
+} from '@/lib/plan-cookie';
 import { limitRequest } from '@/lib/rate-limit';
 
 export const maxDuration = 30;
@@ -166,6 +172,8 @@ export async function POST(req: Request) {
   const sessionUserId =
     session?.user?.id || session?.user?.email || null;
   const identity = strictIdentityFor(sessionUserId, clientIp(req));
+  const cookieValue = getCookieValue(req.headers.get('cookie'), PLAN_COOKIE_NAME);
+  let planHeader: string | null = null;
   let spent = 0;
 
   try {
@@ -177,19 +185,30 @@ export async function POST(req: Request) {
       return Response.json({ error: 'No messages provided.' }, { status: 400 });
     }
 
-    // Paid models require membership — verified server-side so they can't
-    // be reached by hand-crafted requests bypassing the UI.
-    const tier = await getTier(sessionUserId);
+    // Paid models require membership — resolved from the store + the
+    // signed plan cookie (which survives cold starts on hosts without
+    // shared storage). Verified server-side so hand-crafted requests
+    // bypassing the UI can't reach paid models.
+    const resolved = await resolveTier(sessionUserId, cookieValue);
+    const tier = resolved.tier;
+    planHeader = resolved.planCookie.set
+      ? serializePlanCookie(resolved.planCookie.set)
+      : resolved.planCookie.clear
+        ? clearPlanCookieHeader()
+        : null;
+    const planInit: { headers?: Record<string, string> } = planHeader
+      ? { headers: { 'Set-Cookie': planHeader } }
+      : {};
     if (modelSelect === 'aetheris-pro' && tier !== 'pro') {
       return Response.json(
         { error: 'Aetheris Pro is locked. Please use Aetheris Basic.' },
-        { status: 403 }
+        { status: 403, ...planInit }
       );
     }
     if (modelSelect === 'aetheris-asteroid' && tier === 'basic') {
       return Response.json(
         { error: 'Aetheris Asteroid requires a membership. Please use Aetheris Basic.' },
-        { status: 403 }
+        { status: 403, ...planInit }
       );
     }
 
@@ -213,7 +232,7 @@ export async function POST(req: Request) {
               ? 'Out of free credits for today — sign in for 100 a day.'
               : 'Out of credits for today — more land at midnight.'
         },
-        { status: 402 }
+        { status: 402, ...planInit }
       );
     }
     spent = cost;
@@ -242,7 +261,7 @@ export async function POST(req: Request) {
         messages: modelMessages,
         temperature,
       });
-      return result.toDataStreamResponse();
+      return result.toDataStreamResponse(planInit);
     }
 
     // ---- Google Gemini (LLM_PROVIDER=gemini, free tier, no credit card) ----
@@ -264,7 +283,7 @@ export async function POST(req: Request) {
         messages: modelMessages,
         temperature,
       });
-      return result.toDataStreamResponse();
+      return result.toDataStreamResponse(planInit);
     }
 
     // ---- OpenAI fallback (LLM_PROVIDER=openai) ----
@@ -284,7 +303,7 @@ export async function POST(req: Request) {
         messages: modelMessages,
         temperature,
       });
-      return result.toDataStreamResponse();
+      return result.toDataStreamResponse(planInit);
     }
 
     // ---- Custom REST LLM (LLM_PROVIDER=custom) ----
@@ -306,7 +325,7 @@ export async function POST(req: Request) {
       messages: modelMessages,
       temperature: 0.7
     });
-    return result.toDataStreamResponse();
+    return result.toDataStreamResponse(planInit);
   } catch (err) {
     // The response never streamed: refund the strict spend (if any).
     if (spent > 0) await strictRefund(identity, spent);

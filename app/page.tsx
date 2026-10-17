@@ -1088,6 +1088,13 @@ export default function ChatPage() {
   }>({ asteroid: null, pro: null });
   const [billingBusy, setBillingBusy] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreId, setRestoreId] = useState('');
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
   const PAYPAL_CLIENT_ID = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID ?? '';
   const [sendError, setSendError] = useState<string | null>(null);
@@ -1350,6 +1357,48 @@ export default function ChatPage() {
           err instanceof Error ? err.message : 'Checkout failed.'
         );
         setBillingBusy(false);
+      });
+  };
+
+  const restorePurchase = () => {
+    setRestoreBusy(true);
+    setRestoreMsg(null);
+    void fetch('/api/billing/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscriptionId: restoreId.trim() })
+    })
+      .then(async (r) => {
+        const d = (await r.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!r.ok || !d || d['ok'] !== true) {
+          throw new Error(
+            (d && typeof d['error'] === 'string' && d['error']) ||
+              'No purchase found to restore.'
+          );
+        }
+        const restoredTier =
+          d['tier'] === 'asteroid' || d['tier'] === 'pro'
+            ? (d['tier'] as PlanTier)
+            : 'pro';
+        setTier(restoredTier);
+        setIsPro(restoredTier === 'pro');
+        setRestoreMsg({
+          ok: true,
+          text: `Restored ${restoredTier === 'pro' ? 'Pro' : 'Asteroid'}. Enjoy!`
+        });
+        setRestoreId('');
+      })
+      .catch((err: unknown) => {
+        setRestoreMsg({
+          ok: false,
+          text: err instanceof Error ? err.message : 'Restore failed.'
+        });
+      })
+      .finally(() => {
+        setRestoreBusy(false);
       });
   };
 
@@ -3354,6 +3403,63 @@ export default function ChatPage() {
             {effectivePayMethod === 'card' ? 'Stripe' : 'PayPal'}. Cancel
             anytime.
           </p>
+
+          {/* -------- restore an existing purchase (lost entitlement) ------- */}
+          {!isGuest && (
+            <div className="mt-3 border-t border-white/10 pt-3">
+              {!restoreOpen ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRestoreOpen(true);
+                    setRestoreMsg(null);
+                  }}
+                  className="mx-auto block text-[12px] text-slate-400 underline-offset-2 transition hover:text-slate-200 hover:underline"
+                >
+                  Already subscribed? Restore access
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-[12px] leading-5 text-slate-400">
+                    Paid already but showing Basic? We&apos;ll look up a card
+                    subscription on{' '}
+                    <span className="text-slate-200">
+                      {session?.user?.email ?? 'your account'}
+                    </span>
+                    . For PayPal, paste the subscription id from your receipt.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={restoreId}
+                      onChange={(e) => setRestoreId(e.target.value)}
+                      placeholder="PayPal subscription id (optional)"
+                      spellCheck={false}
+                      autoComplete="off"
+                      className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[12.5px] text-slate-100 placeholder:text-slate-500 focus:border-cyan-400/50 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={restorePurchase}
+                      disabled={restoreBusy}
+                      className="shrink-0 rounded-xl bg-white/10 px-3 py-2 text-[12.5px] font-semibold text-white transition hover:bg-white/15 active:scale-[0.98] disabled:opacity-60"
+                    >
+                      {restoreBusy ? 'Checking…' : 'Restore'}
+                    </button>
+                  </div>
+                  {restoreMsg && (
+                    <p
+                      className={`text-[12px] ${
+                        restoreMsg.ok ? 'text-emerald-300' : 'text-red-300'
+                      }`}
+                    >
+                      {restoreMsg.text}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </ModalShell>
       )}
 

@@ -1,5 +1,6 @@
 import { getSharedRedis } from './credit-server';
 import { getSubscription, subscriptionIsPaying } from './paypal';
+import { signPlanCookie, verifyPlanCookie } from './plan-cookie';
 
 /**
  * Pro entitlements: who paid, verified against PayPal, cached in Redis.
@@ -130,8 +131,10 @@ async function revalidate(
     return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: stored.checkedAt };
   }
   const live = await getSubscription(stored.subscriptionId);
-  const paying = live.ok && subscriptionIsPaying(live.status);
-  const tier: PlanTierStatus = paying ? stored.tier : 'basic';
+  // Only an explicit negative from PayPal downgrades. A transient failure
+  // (network blip, PayPal outage) keeps the membership until the next try.
+  const cancelled = live.ok && !subscriptionIsPaying(live.status);
+  const tier: PlanTierStatus = cancelled ? 'basic' : stored.tier;
   const next: StoredPro = {
     tier,
     subscriptionId: stored.subscriptionId,
@@ -160,4 +163,80 @@ export async function getProStatus(userId: string | null): Promise<ProStatus> {
 /** Full membership tier (basic for guests and unpaid accounts). */
 export async function getTier(userId: string | null): Promise<PlanTierStatus> {
   return (await getProStatus(userId)).tier;
+}
+
+export type ResolvedTier = {
+  tier: PlanTierStatus;
+  subscriptionId: string | null;
+  /**
+   * Cookie action for the route to apply on its response:
+   *   set   — mint a fresh signed cookie value (or null)
+   *   clear — delete the cookie (membership lost / forged)
+   */
+  planCookie: { set: string | null; clear: boolean };
+};
+
+/**
+ * Resolve a caller's tier from BOTH the store and the signed plan cookie.
+ *
+ * This is the durable path: on hosts without shared storage, the
+ * server-side cache is empty after every cold start, but the signed
+ * cookie still proves a purchase. The cookie is trusted immediately for
+ * its first 24h, then confirmed live against PayPal and renewed — so a
+ * cancelled subscription always lapses within a day.
+ */
+export async function resolveTier(
+  userId: string | null,
+  cookieValue: string | null
+): Promise<ResolvedTier> {
+  if (!userId) {
+    return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: false } };
+  }
+
+  const stored = await readPro(userId);
+  if (stored) {
+    const status = await revalidate(userId, stored);
+    if (status.tier !== 'basic' && status.subscriptionId) {
+      return {
+        tier: status.tier,
+        subscriptionId: status.subscriptionId,
+        planCookie: {
+          set: signPlanCookie(userId, status.tier, status.subscriptionId),
+          clear: false
+        }
+      };
+    }
+    return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: true } };
+  }
+
+  // No store record (cold start / different region): fall back to the cookie.
+  const verified = verifyPlanCookie(cookieValue, userId);
+  if (!verified) {
+    return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: false } };
+  }
+
+  if (!verified.stale) {
+    return {
+      tier: verified.tier,
+      subscriptionId: verified.subscriptionId,
+      planCookie: { set: null, clear: false }
+    };
+  }
+
+  // Older cookie: confirm with PayPal, then renew or drop.
+  const live = await getSubscription(verified.subscriptionId);
+  const cancelled = live.ok && !subscriptionIsPaying(live.status);
+  if (cancelled) {
+    await clearMembership(userId);
+    return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: true } };
+  }
+  await setTierActive(userId, verified.tier, verified.subscriptionId);
+  return {
+    tier: verified.tier,
+    subscriptionId: verified.subscriptionId,
+    planCookie: {
+      set: signPlanCookie(userId, verified.tier, verified.subscriptionId),
+      clear: false
+    }
+  };
 }

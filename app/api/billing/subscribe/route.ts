@@ -8,6 +8,7 @@ import {
 } from '@/lib/paypal';
 import { getSharedRedis } from '@/lib/credit-server';
 import { setTierActive } from '@/lib/pro';
+import { signPlanCookie, serializePlanCookie } from '@/lib/plan-cookie';
 import { limitRequest } from '@/lib/rate-limit';
 
 const memoryPlanIds = new Map<string, string>();
@@ -90,5 +91,8 @@ export async function POST(req: Request) {
   }
 
   await setTierActive(userId, tier, subscriptionId);
-  return Response.json({ ok: true, tier });
+  const headers = new Headers();
+  const cookie = signPlanCookie(userId, tier, subscriptionId);
+  if (cookie) headers.append('Set-Cookie', serializePlanCookie(cookie));
+  return Response.json({ ok: true, tier }, { headers });
 }

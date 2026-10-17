@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getStripe, stripeConfigured } from '@/lib/stripe';
 import { setTierActive } from '@/lib/pro';
+import { signPlanCookie, serializePlanCookie } from '@/lib/plan-cookie';
 import { limitRequest } from '@/lib/rate-limit';
 
 /**
@@ -75,7 +76,10 @@ export async function POST(req: Request) {
       );
     }
     await setTierActive(userId, tier, subscription.id);
-    return Response.json({ ok: true, tier });
+    const headers = new Headers();
+    const cookie = signPlanCookie(userId, tier, subscription.id);
+    if (cookie) headers.append('Set-Cookie', serializePlanCookie(cookie));
+    return Response.json({ ok: true, tier }, { headers });
   } catch (err) {
     console.error('[aetheris/stripe-verify] error:', err);
     return Response.json(
