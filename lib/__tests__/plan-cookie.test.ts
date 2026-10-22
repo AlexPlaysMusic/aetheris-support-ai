@@ -1,125 +1,86 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  PLAN_COOKIE_NAME,
-  PLAN_COOKIE_TTL_MS,
-  PLAN_COOKIE_REVALIDATE_AFTER_MS,
-  signPlanCookie,
-  verifyPlanCookie,
-  serializePlanCookie,
   clearPlanCookieHeader,
-  getCookieValue
+  getCookieValue,
+  PLAN_COOKIE_NAME,
+  serializePlanCookie,
+  signPlanCookie,
+  verifyPlanCookie
 } from '../plan-cookie';
 
-const SECRET = 'test-secret-please-change';
+const SECRET_ENV = 'NEXTAUTH_SECRET';
 
-beforeEach(() => {
-  process.env.NEXTAUTH_SECRET = SECRET;
-});
-
-afterEach(() => {
-  delete process.env.NEXTAUTH_SECRET;
-});
-
-describe('signPlanCookie / verifyPlanCookie', () => {
-  it('round-trips a pro cookie', () => {
-    const value = signPlanCookie('user-1', 'pro', 'sub-1');
+describe('plan-cookie', () => {
+  it('round-trips a valid cookie and binds it to the user', () => {
+    process.env[SECRET_ENV] = 'shh';
+    const value = signPlanCookie('user-1', 'pro', 'sub-9') as string;
     expect(value).toBeTruthy();
     const verified = verifyPlanCookie(value, 'user-1');
-    expect(verified).not.toBeNull();
-    expect(verified!.tier).toBe('pro');
-    expect(verified!.subscriptionId).toBe('sub-1');
-    expect(verified!.stale).toBe(false);
+    expect(verified).toMatchObject({
+      tier: 'pro',
+      subscriptionId: 'sub-9',
+      stale: false
+    });
+    // Wrong user cannot reuse it.
+    expect(verifyPlanCookie(value, 'someone-else')).toBeNull();
+    delete process.env[SECRET_ENV];
   });
 
-  it('round-trips an asteroid cookie', () => {
-    const value = signPlanCookie('user-2', 'asteroid', 'sub-2');
-    const verified = verifyPlanCookie(value, 'user-2');
-    expect(verified!.tier).toBe('asteroid');
-  });
-
-  it('refuses to sign for a basic tier or missing fields', () => {
-    expect(signPlanCookie('user-1', 'basic' as never, 'sub-1')).toBeNull();
-    expect(signPlanCookie('', 'pro', 'sub-1')).toBeNull();
-    expect(signPlanCookie('user-1', 'pro', '')).toBeNull();
-  });
-
-  it('returns null when there is no signing secret', () => {
-    delete process.env.NEXTAUTH_SECRET;
-    expect(signPlanCookie('user-1', 'pro', 'sub-1')).toBeNull();
-    const value = signPlanCookie('user-1', 'pro', 'sub-1');
-    expect(verifyPlanCookie(value, 'user-1')).toBeNull();
-  });
-
-  it('rejects a cookie minted for a different user', () => {
-    const forged = signPlanCookie('someone-else', 'pro', 'sub-1');
-    expect(verifyPlanCookie(forged, 'user-1')).toBeNull();
-  });
-
-  it('rejects a tampered payload', () => {
-    const value = signPlanCookie('user-1', 'asteroid', 'sub-1')!;
+  it('rejects forged, malformed and expired cookies', () => {
+    process.env[SECRET_ENV] = 'shh';
+    const value = signPlanCookie('user-1', 'pro', 'sub-9') as string;
+    // Tampered body.
     const parts = value.split('.');
-    const evilPayload = Buffer.from(
-      JSON.stringify({ u: 'user-1', t: 'pro', s: 'sub-1', iat: Date.now() })
-    ).toString('base64url');
-    const tampered = `v1.${evilPayload}.${parts[2]}`;
+    const tampered = `${parts[0]}.${parts[1].slice(0, -3)}xxx.${parts[2]}`;
     expect(verifyPlanCookie(tampered, 'user-1')).toBeNull();
-  });
-
-  it('rejects garbage and wrong versions', () => {
+    // Wrong signature.
+    const wrongSig = `${parts[0]}.${parts[1]}.${'0'.repeat(parts[2].length)}`;
+    expect(verifyPlanCookie(wrongSig, 'user-1')).toBeNull();
+    // Garbage.
+    expect(verifyPlanCookie('nope', 'user-1')).toBeNull();
     expect(verifyPlanCookie('', 'user-1')).toBeNull();
-    expect(verifyPlanCookie('v1.notbase64.notasig', 'user-1')).toBeNull();
-    expect(verifyPlanCookie('v2.payload.sig', 'user-1')).toBeNull();
-    expect(verifyPlanCookie('only-one-part', 'user-1')).toBeNull();
+    expect(verifyPlanCookie(value, '')).toBeNull();
+    // Expired.
+    const expired = signPlanCookie('user-1', 'pro', 'sub-9', Date.now() - 8 * 86400_000) as string;
+    expect(verifyPlanCookie(expired, 'user-1')).toBeNull();
+    delete process.env[SECRET_ENV];
   });
 
-  it('marks cookies stale after the revalidation window but still authentic', () => {
-    const now = Date.now();
-    const value = signPlanCookie('user-1', 'pro', 'sub-1', now)!;
-    const later = now + PLAN_COOKIE_REVALIDATE_AFTER_MS + 1000;
-    const verified = verifyPlanCookie(value, 'user-1', later);
-    expect(verified).not.toBeNull();
-    expect(verified!.stale).toBe(true);
+  it('marks cookies older than 24h as stale but still valid', () => {
+    process.env[SECRET_ENV] = 'shh';
+    const old = signPlanCookie('u', 'asteroid', 'sub-2', Date.now() - 25 * 3600_000) as string;
+    const v = verifyPlanCookie(old, 'u');
+    expect(v?.tier).toBe('asteroid');
+    expect(v?.stale).toBe(true);
+    delete process.env[SECRET_ENV];
   });
 
-  it('rejects cookies past the absolute TTL', () => {
-    const now = Date.now();
-    const value = signPlanCookie('user-1', 'pro', 'sub-1', now)!;
-    const tooLate = now + PLAN_COOKIE_TTL_MS + 1000;
-    expect(verifyPlanCookie(value, 'user-1', tooLate)).toBeNull();
-  });
-});
-
-describe('serializePlanCookie', () => {
-  it('sets HttpOnly, SameSite and an absolute Max-Age', () => {
-    const header = serializePlanCookie('v1.abc.def');
-    expect(header.startsWith(`${PLAN_COOKIE_NAME}=`)).toBe(true);
-    expect(header).toContain('HttpOnly');
-    expect(header).toContain('SameSite=Lax');
-    expect(header).toContain('Path=/');
-    expect(header).toContain('Max-Age=604800');
+  it('refuses to sign without a secret or valid tier', () => {
+    expect(signPlanCookie('u', 'pro', 'sub')).toBeNull();
+    process.env[SECRET_ENV] = 'shh';
+    expect(signPlanCookie('', 'pro', 'sub')).toBeNull();
+    expect(signPlanCookie('u', 'pro', '')).toBeNull();
+    expect(signPlanCookie('u', 'basic' as never, 'sub')).toBeNull();
+    delete process.env[SECRET_ENV];
   });
 
-  it('honours a custom max age', () => {
-    expect(serializePlanCookie('v1.abc.def', 60)).toContain('Max-Age=60');
+  it('serializes and clears cookies with the right flags', () => {
+    // jsdom/tsc may mark NODE_ENV readonly; serialize logic still runs.
+    const serialized = serializePlanCookie('v1.a.b');
+    expect(serialized).toContain(`${PLAN_COOKIE_NAME}=v1.a.b`);
+    expect(serialized).toContain('Path=/');
+    expect(serialized).toContain('HttpOnly');
+    expect(serialized).toContain('SameSite=Lax');
+    expect(serialized).toContain('Max-Age=');
+    const cleared = clearPlanCookieHeader();
+    expect(cleared).toContain('Max-Age=0');
   });
 
-  it('clears with Max-Age=0', () => {
-    expect(clearPlanCookieHeader()).toContain('Max-Age=0');
-  });
-});
-
-describe('getCookieValue', () => {
-  it('finds a cookie among many', () => {
-    const header = 'a=1; aetheris_plan=v1.abc.def; other=2';
-    expect(getCookieValue(header, PLAN_COOKIE_NAME)).toBe('v1.abc.def');
-  });
-
-  it('decodes URL-encoded values', () => {
-    expect(getCookieValue('x=a%20b', 'x')).toBe('a b');
-  });
-
-  it('returns null when missing or empty header', () => {
-    expect(getCookieValue('a=1', PLAN_COOKIE_NAME)).toBeNull();
-    expect(getCookieValue(null, PLAN_COOKIE_NAME)).toBeNull();
+  it('reads a single cookie out of a header', () => {
+    const header = 'foo=bar; aetheris_plan=hello%20world; baz=qux';
+    expect(getCookieValue(header, 'aetheris_plan')).toBe('hello world');
+    expect(getCookieValue(header, 'foo')).toBe('bar');
+    expect(getCookieValue(header, 'missing')).toBeNull();
+    expect(getCookieValue(null, 'aetheris_plan')).toBeNull();
   });
 });

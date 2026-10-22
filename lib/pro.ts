@@ -1,5 +1,12 @@
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { getSharedRedis } from './credit-server';
 import { getSubscription, subscriptionIsPaying } from './paypal';
+import {
+  getCookieValue,
+  PLAN_COOKIE_NAME,
+  verifyPlanCookie as verifyPlanCookieSigned
+} from './plan-cookie';
 import { signPlanCookie, verifyPlanCookie } from './plan-cookie';
 
 /**
@@ -154,15 +161,57 @@ export async function getProStatus(userId: string | null): Promise<ProStatus> {
     return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: null };
   }
   const stored = await readPro(userId);
-  if (!stored) {
-    return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: null };
+  if (stored) return revalidate(userId, stored);
+
+  // Cookie fallback: signed-in user with no DB record (e.g. Redis not wired
+  // or evicted) but a valid signed cookie from a prior checkout. Revalidate
+  // against PayPal, then persist so the next call is fast.
+  const cookieValue = cookieValueForCurrentUser(userId);
+  const verified = verifyPlanCookieSigned(cookieValue, userId);
+  if (verified) {
+    const live = await getSubscription(verified.subscriptionId);
+    const paying = live.ok && subscriptionIsPaying(live.status);
+    const tier: PlanTierStatus = paying ? verified.tier : 'basic';
+    if (paying) {
+      await writePro(userId, {
+        tier,
+        subscriptionId: verified.subscriptionId,
+        checkedAt: Date.now()
+      });
+    }
+    return {
+      pro: tier === 'pro',
+      tier,
+      subscriptionId: paying ? verified.subscriptionId : null,
+      checkedAt: Date.now()
+    };
   }
-  return revalidate(userId, stored);
+  return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: null };
 }
 
 /** Full membership tier (basic for guests and unpaid accounts). */
 export async function getTier(userId: string | null): Promise<PlanTierStatus> {
   return (await getProStatus(userId)).tier;
+}
+
+/**
+ * Read the signed plan cookie from the incoming request (server-only).
+ * Returns null when there is no cookie or no signing secret.
+ */
+export function cookieValueForCurrentUser(userId: string): string | null {
+  if (typeof globalThis === 'undefined') return null;
+  try {
+    // Next.js passes the Cookie header through process.env in edge-ish
+    // contexts; in the standard Node runtime we read it from the request
+    // via the AsyncLocalStorage-ish global. Fallback: callers pass it.
+    const header =
+      (globalThis as { __aetheris_cookie_header__?: string })
+        .__aetheris_cookie_header__ ?? null;
+    if (header) return getCookieValue(header, PLAN_COOKIE_NAME);
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
 
 export type ResolvedTier = {
@@ -210,7 +259,7 @@ export async function resolveTier(
   }
 
   // No store record (cold start / different region): fall back to the cookie.
-  const verified = verifyPlanCookie(cookieValue, userId);
+  const verified = verifyPlanCookieSigned(cookieValue, userId);
   if (!verified) {
     return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: false } };
   }
