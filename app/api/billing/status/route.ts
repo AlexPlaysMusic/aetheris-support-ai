@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   const session = await getServerSession(authOptions).catch(() => null);
   const userId = session?.user?.id || session?.user?.email || null;
   const cookieValue = getCookieValue(req.headers.get('cookie'), PLAN_COOKIE_NAME);
-  const resolved = await resolveTier(userId, cookieValue);
+  const resolved = await resolveTier(userId, cookieValue, session?.user?.email ?? null);
 
   const headers = new Headers();
   if (resolved.planCookie.set) {

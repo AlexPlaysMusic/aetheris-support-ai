@@ -30,7 +30,9 @@ export async function POST(req: Request) {
     if (!action) return Response.json({ ok: true, ignored: true });
 
     if (action.action === 'activate') {
-      await setTierActive(action.userId, action.tier, action.subscriptionId);
+      await setTierActive(action.userId, action.tier, action.subscriptionId, {
+        provider: 'stripe'
+      });
     } else {
       await clearMembership(action.userId);
     }

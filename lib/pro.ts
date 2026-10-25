@@ -1,7 +1,11 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSharedRedis } from './credit-server';
-import { getSubscription, subscriptionIsPaying } from './paypal';
+import {
+  getSubscription,
+  subscriptionBelongsToEmail,
+  subscriptionIsPaying
+} from './paypal';
 import {
   getCookieValue,
   PLAN_COOKIE_NAME,
@@ -30,6 +34,8 @@ type StoredPro = {
   tier: PlanTierStatus;
   subscriptionId: string;
   checkedAt: number;
+  provider?: 'paypal' | 'stripe';
+  payerEmail?: string;
   /** legacy shape (pre-tier): active boolean only */
   active?: boolean;
 };
@@ -56,7 +62,11 @@ function normalizeStored(parsed: Partial<StoredPro>): StoredPro | null {
     tier,
     subscriptionId:
       typeof parsed.subscriptionId === 'string' ? parsed.subscriptionId : '',
-    checkedAt: typeof parsed.checkedAt === 'number' ? parsed.checkedAt : 0
+    checkedAt: typeof parsed.checkedAt === 'number' ? parsed.checkedAt : 0,
+    ...(parsed.provider === 'paypal' || parsed.provider === 'stripe'
+      ? { provider: parsed.provider }
+      : {}),
+    ...(typeof parsed.payerEmail === 'string' ? { payerEmail: parsed.payerEmail } : {})
   };
 }
 
@@ -105,12 +115,15 @@ export async function clearMembership(userId: string): Promise<void> {
 export async function setTierActive(
   userId: string,
   tier: Exclude<PlanTierStatus, 'basic'>,
-  subscriptionId: string
+  subscriptionId: string,
+  payment?: { provider: 'paypal'; payerEmail: string } | { provider: 'stripe' }
 ): Promise<void> {
   await writePro(userId, {
     tier,
     subscriptionId,
-    checkedAt: Date.now()
+    checkedAt: Date.now(),
+    ...(payment ? { provider: payment.provider } : {}),
+    ...(payment?.provider === 'paypal' ? { payerEmail: payment.payerEmail } : {})
   });
 }
 
@@ -124,8 +137,38 @@ export async function setProActive(
 
 async function revalidate(
   userId: string,
-  stored: StoredPro
+  stored: StoredPro,
+  accountEmail: string | null
 ): Promise<ProStatus> {
+  const isPayPal =
+    stored.provider === 'paypal' || stored.subscriptionId.startsWith('I-');
+  let live: Awaited<ReturnType<typeof getSubscription>> | null = null;
+  if (isPayPal) {
+    if (stored.payerEmail) {
+      if (
+        !accountEmail ||
+        stored.payerEmail.trim().toLowerCase() !== accountEmail.trim().toLowerCase()
+      ) {
+        await clearMembership(userId);
+        return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: Date.now() };
+      }
+    } else {
+      live = await getSubscription(stored.subscriptionId);
+      if (!live.ok) {
+        return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: stored.checkedAt };
+      }
+      if (!subscriptionBelongsToEmail(live, accountEmail)) {
+        await clearMembership(userId);
+        return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: Date.now() };
+      }
+      if (!live.payerEmail) {
+        await clearMembership(userId);
+        return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: Date.now() };
+      }
+      stored = { ...stored, provider: 'paypal', payerEmail: live.payerEmail };
+      await writePro(userId, stored);
+    }
+  }
   if (Date.now() - stored.checkedAt < REVALIDATE_MS) {
     return {
       pro: stored.tier === 'pro',
@@ -137,7 +180,17 @@ async function revalidate(
   if (stored.subscriptionId === '') {
     return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: stored.checkedAt };
   }
-  const live = await getSubscription(stored.subscriptionId);
+  live ??= await getSubscription(stored.subscriptionId);
+  if (
+    isPayPal &&
+    live.ok &&
+    (!subscriptionBelongsToEmail(live, accountEmail) ||
+      (stored.payerEmail &&
+        live.payerEmail?.toLowerCase() !== stored.payerEmail.toLowerCase()))
+  ) {
+    await clearMembership(userId);
+    return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: Date.now() };
+  }
   // Only an explicit negative from PayPal downgrades. A transient failure
   // (network blip, PayPal outage) keeps the membership until the next try.
   const cancelled = live.ok && !subscriptionIsPaying(live.status);
@@ -145,7 +198,9 @@ async function revalidate(
   const next: StoredPro = {
     tier,
     subscriptionId: stored.subscriptionId,
-    checkedAt: Date.now()
+    checkedAt: Date.now(),
+    ...(stored.provider ? { provider: stored.provider } : {}),
+    ...(stored.payerEmail ? { payerEmail: stored.payerEmail } : {})
   };
   await writePro(userId, next);
   return {
@@ -156,12 +211,15 @@ async function revalidate(
   };
 }
 
-export async function getProStatus(userId: string | null): Promise<ProStatus> {
+export async function getProStatus(
+  userId: string | null,
+  accountEmail: string | null = null
+): Promise<ProStatus> {
   if (!userId) {
     return { pro: false, tier: 'basic', subscriptionId: null, checkedAt: null };
   }
   const stored = await readPro(userId);
-  if (stored) return revalidate(userId, stored);
+  if (stored) return revalidate(userId, stored, accountEmail);
 
   // Cookie fallback: signed-in user with no DB record (e.g. Redis not wired
   // or evicted) but a valid signed cookie from a prior checkout. Revalidate
@@ -170,13 +228,19 @@ export async function getProStatus(userId: string | null): Promise<ProStatus> {
   const verified = verifyPlanCookieSigned(cookieValue, userId);
   if (verified) {
     const live = await getSubscription(verified.subscriptionId);
-    const paying = live.ok && subscriptionIsPaying(live.status);
+    const paypalSubscription = verified.subscriptionId.startsWith('I-');
+    const ownsSubscription =
+      !paypalSubscription || subscriptionBelongsToEmail(live, accountEmail);
+    const paying = live.ok && ownsSubscription && subscriptionIsPaying(live.status);
     const tier: PlanTierStatus = paying ? verified.tier : 'basic';
     if (paying) {
       await writePro(userId, {
         tier,
         subscriptionId: verified.subscriptionId,
-        checkedAt: Date.now()
+        checkedAt: Date.now(),
+        ...(paypalSubscription && live.ok
+          ? { provider: 'paypal' as const, payerEmail: live.payerEmail ?? undefined }
+          : {})
       });
     }
     return {
@@ -236,7 +300,8 @@ export type ResolvedTier = {
  */
 export async function resolveTier(
   userId: string | null,
-  cookieValue: string | null
+  cookieValue: string | null,
+  accountEmail: string | null = null
 ): Promise<ResolvedTier> {
   if (!userId) {
     return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: false } };
@@ -244,7 +309,7 @@ export async function resolveTier(
 
   const stored = await readPro(userId);
   if (stored) {
-    const status = await revalidate(userId, stored);
+    const status = await revalidate(userId, stored, accountEmail);
     if (status.tier !== 'basic' && status.subscriptionId) {
       return {
         tier: status.tier,
@@ -264,7 +329,8 @@ export async function resolveTier(
     return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: false } };
   }
 
-  if (!verified.stale) {
+  const paypalSubscription = verified.subscriptionId.startsWith('I-');
+  if (!verified.stale && !paypalSubscription) {
     return {
       tier: verified.tier,
       subscriptionId: verified.subscriptionId,
@@ -274,12 +340,28 @@ export async function resolveTier(
 
   // Older cookie: confirm with PayPal, then renew or drop.
   const live = await getSubscription(verified.subscriptionId);
-  const cancelled = live.ok && !subscriptionIsPaying(live.status);
+  const ownsSubscription =
+    !paypalSubscription || subscriptionBelongsToEmail(live, accountEmail);
+  if (paypalSubscription && !ownsSubscription) {
+    await clearMembership(userId);
+    return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: true } };
+  }
+  const cancelled = live.ok && ownsSubscription && !subscriptionIsPaying(live.status);
   if (cancelled) {
     await clearMembership(userId);
     return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: true } };
   }
-  await setTierActive(userId, verified.tier, verified.subscriptionId);
+  if (!live.ok) {
+    return { tier: 'basic', subscriptionId: null, planCookie: { set: null, clear: true } };
+  }
+  await setTierActive(
+    userId,
+    verified.tier,
+    verified.subscriptionId,
+    paypalSubscription && live.payerEmail
+      ? { provider: 'paypal', payerEmail: live.payerEmail }
+      : undefined
+  );
   return {
     tier: verified.tier,
     subscriptionId: verified.subscriptionId,

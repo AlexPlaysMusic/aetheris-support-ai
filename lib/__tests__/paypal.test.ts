@@ -6,6 +6,7 @@ import {
   paypalBaseUrl,
   paypalConfigured,
   resetPayPalTokenCache,
+  subscriptionBelongsToEmail,
   subscriptionIsPaying
 } from '../paypal';
 
@@ -59,12 +60,26 @@ describe('getSubscription', () => {
     const { calls } = stubFetch((url) =>
       url.includes('/oauth2/token')
         ? { access_token: 'tok', expires_in: 3600 }
-        : { status: 'ACTIVE', id: 'sub-1' }
+        : {
+            status: 'ACTIVE',
+            id: 'sub-1',
+            subscriber: { email_address: 'buyer@example.com' }
+          }
     );
     const first = await getSubscription('sub-1');
     const second = await getSubscription('sub-1');
-    expect(first).toEqual({ ok: true, status: 'ACTIVE', planId: null });
-    expect(second).toEqual({ ok: true, status: 'ACTIVE', planId: null });
+    expect(first).toEqual({
+      ok: true,
+      status: 'ACTIVE',
+      planId: null,
+      payerEmail: 'buyer@example.com'
+    });
+    expect(second).toEqual({
+      ok: true,
+      status: 'ACTIVE',
+      planId: null,
+      payerEmail: 'buyer@example.com'
+    });
     expect(calls.filter((c) => c.includes('/oauth2/token'))).toHaveLength(1);
   });
 
@@ -158,5 +173,30 @@ describe('subscriptionIsPaying', () => {
     expect(subscriptionIsPaying('CANCELLED')).toBe(false);
     expect(subscriptionIsPaying('SUSPENDED')).toBe(false);
     expect(subscriptionIsPaying('')).toBe(false);
+  });
+
+  describe('subscriptionBelongsToEmail', () => {
+    it('matches the live PayPal payer email case-insensitively', () => {
+      expect(
+        subscriptionBelongsToEmail(
+          { ok: true, status: 'ACTIVE', planId: 'plan-1', payerEmail: 'Buyer@Example.com' },
+          'buyer@example.com'
+        )
+      ).toBe(true);
+    });
+
+    it('rejects mismatched or missing account identity', () => {
+      const subscription = {
+        ok: true as const,
+        status: 'ACTIVE',
+        planId: 'plan-1',
+        payerEmail: 'buyer@example.com'
+      };
+      expect(subscriptionBelongsToEmail(subscription, 'another@example.com')).toBe(false);
+      expect(subscriptionBelongsToEmail(subscription, null)).toBe(false);
+      expect(
+        subscriptionBelongsToEmail({ ...subscription, payerEmail: null }, 'buyer@example.com')
+      ).toBe(false);
+    });
   });
 });

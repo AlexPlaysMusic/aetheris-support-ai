@@ -189,7 +189,11 @@ export async function POST(req: Request) {
     // signed plan cookie (which survives cold starts on hosts without
     // shared storage). Verified server-side so hand-crafted requests
     // bypassing the UI can't reach paid models.
-    const resolved = await resolveTier(sessionUserId, cookieValue);
+    const resolved = await resolveTier(
+      sessionUserId,
+      cookieValue,
+      session?.user?.email ?? null
+    );
     const tier = resolved.tier;
     planHeader = resolved.planCookie.set
       ? serializePlanCookie(resolved.planCookie.set)

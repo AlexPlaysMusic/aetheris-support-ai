@@ -4,6 +4,7 @@ import {
   ensurePlan,
   getSubscription,
   paypalConfigured,
+  subscriptionBelongsToEmail,
   subscriptionIsPaying,
   type PaidTier
 } from '@/lib/paypal';
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
           if (!priceId) continue;
           const tier = await tierFromPriceId(priceId);
           if (!tier) continue;
-          await setTierActive(userId, tier, sub.id);
+          await setTierActive(userId, tier, sub.id, { provider: 'stripe' });
           const headers = new Headers();
           const cookie = signPlanCookie(userId, tier, sub.id);
           if (cookie) headers.append('Set-Cookie', serializePlanCookie(cookie));
@@ -122,6 +123,12 @@ export async function POST(req: Request) {
     if (!live.ok) {
       return Response.json({ error: live.error }, { status: 502 });
     }
+    if (!live.payerEmail || !subscriptionBelongsToEmail(live, email)) {
+      return Response.json(
+        { error: 'This PayPal subscription does not match your signed-in account email.' },
+        { status: 403 }
+      );
+    }
     if (!subscriptionIsPaying(live.status)) {
       return Response.json(
         { error: `That subscription is ${live.status} — nothing to restore.` },
@@ -136,7 +143,10 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    await setTierActive(userId, tier, subscriptionId);
+    await setTierActive(userId, tier, subscriptionId, {
+      provider: 'paypal',
+      payerEmail: live.payerEmail
+    });
     const headers = new Headers();
     const cookie = signPlanCookie(userId, tier, subscriptionId);
     if (cookie) headers.append('Set-Cookie', serializePlanCookie(cookie));

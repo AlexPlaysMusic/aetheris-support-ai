@@ -69,6 +69,64 @@ describe('getProStatus', () => {
     expect(status.pro).toBe(false);
   });
 
+  it('removes a legacy PayPal entitlement when the payer email belongs to another account', async () => {
+    process.env.PAYPAL_CLIENT_ID = 'id';
+    process.env.PAYPAL_CLIENT_SECRET = 'secret';
+    await setTierActive('attacker', 'pro', 'I-victim-subscription');
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url).includes('/oauth2/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'tok', expires_in: 3600 })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'ACTIVE',
+          plan_id: 'plan-pro',
+          subscriber: { email_address: 'victim@example.com' }
+        })
+      };
+    }) as typeof fetch;
+
+    const resolved = await resolveTier('attacker', null, 'attacker@example.com');
+    expect(resolved.tier).toBe('basic');
+    expect(resolved.planCookie.clear).toBe(true);
+  });
+
+  it('checks a fresh PayPal cookie against the signed-in email', async () => {
+    process.env.PAYPAL_CLIENT_ID = 'id';
+    process.env.PAYPAL_CLIENT_SECRET = 'secret';
+    process.env.NEXTAUTH_SECRET = 'test-secret';
+    globalThis.fetch = (async (url: unknown) => {
+      if (String(url).includes('/oauth2/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'tok', expires_in: 3600 })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'ACTIVE',
+          plan_id: 'plan-pro',
+          subscriber: { email_address: 'victim@example.com' }
+        })
+      };
+    }) as typeof fetch;
+    const cookie = signPlanCookie('attacker', 'pro', 'I-victim-subscription')!;
+
+    const resolved = await resolveTier('attacker', cookie, 'attacker@example.com');
+    expect(resolved.tier).toBe('basic');
+    expect(resolved.planCookie.clear).toBe(true);
+    delete process.env.NEXTAUTH_SECRET;
+  });
+
   it('tracks the asteroid tier separately from pro', async () => {
     await setTierActive('user-9', 'asteroid', 'sub-a');
     const status = await getProStatus('user-9');

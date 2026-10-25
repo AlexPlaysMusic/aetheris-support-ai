@@ -4,6 +4,7 @@ import {
   ensurePlan,
   getSubscription,
   subscriptionIsPaying,
+  subscriptionBelongsToEmail,
   type PaidTier
 } from '@/lib/paypal';
 import { getSharedRedis } from '@/lib/credit-server';
@@ -53,6 +54,12 @@ export async function POST(req: Request) {
   if (!live.ok) {
     return Response.json({ error: live.error }, { status: 502 });
   }
+  if (!live.payerEmail || !subscriptionBelongsToEmail(live, session?.user?.email ?? null)) {
+    return Response.json(
+      { error: 'This PayPal subscription does not match your signed-in account email.' },
+      { status: 403 }
+    );
+  }
   if (!subscriptionIsPaying(live.status)) {
     return Response.json(
       { error: `Subscription is ${live.status} — not active yet. Finish checkout, then retry.` },
@@ -90,7 +97,10 @@ export async function POST(req: Request) {
     );
   }
 
-  await setTierActive(userId, tier, subscriptionId);
+  await setTierActive(userId, tier, subscriptionId, {
+    provider: 'paypal',
+    payerEmail: live.payerEmail
+  });
   const headers = new Headers();
   const cookie = signPlanCookie(userId, tier, subscriptionId);
   if (cookie) headers.append('Set-Cookie', serializePlanCookie(cookie));

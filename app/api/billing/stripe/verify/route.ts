@@ -75,7 +75,7 @@ export async function POST(req: Request) {
         { status: 402 }
       );
     }
-    await setTierActive(userId, tier, subscription.id);
+    await setTierActive(userId, tier, subscription.id, { provider: 'stripe' });
     const headers = new Headers();
     const cookie = signPlanCookie(userId, tier, subscription.id);
     if (cookie) headers.append('Set-Cookie', serializePlanCookie(cookie));

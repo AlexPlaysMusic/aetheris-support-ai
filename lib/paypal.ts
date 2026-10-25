@@ -184,7 +184,12 @@ export async function ensureProPlan(store: {
 }
 
 export type SubscriptionState =
-  | { ok: true; status: string; planId: string | null }
+  | {
+      ok: true;
+      status: string;
+      planId: string | null;
+      payerEmail: string | null;
+    }
   | { ok: false; error: string };
 
 /** Fetch a subscription's live status from PayPal. */
@@ -207,13 +212,20 @@ export async function getSubscription(
     const record = (res.data as {
       status?: unknown;
       plan_id?: unknown;
+      subscriber?: unknown;
     } | null) ?? {};
     const status = record.status;
     const planId = record.plan_id;
+    const subscriber =
+      record.subscriber !== null && typeof record.subscriber === 'object'
+        ? (record.subscriber as Record<string, unknown>)
+        : {};
+    const payerEmail = subscriber['email_address'];
     return {
       ok: true,
       status: typeof status === 'string' ? status : 'UNKNOWN',
-      planId: typeof planId === 'string' ? planId : null
+      planId: typeof planId === 'string' ? planId : null,
+      payerEmail: typeof payerEmail === 'string' ? payerEmail.trim() : null
     };
   } catch (err) {
     return {
@@ -221,6 +233,15 @@ export async function getSubscription(
       error: err instanceof Error ? err.message : 'PayPal lookup failed.'
     };
   }
+}
+
+/** Match a live PayPal subscription to the authenticated account email. */
+export function subscriptionBelongsToEmail(
+  subscription: SubscriptionState,
+  accountEmail: string | null
+): boolean {
+  if (!subscription.ok || !accountEmail || !subscription.payerEmail) return false;
+  return subscription.payerEmail.toLowerCase() === accountEmail.trim().toLowerCase();
 }
 
 /** Subscription counts as paying when PayPal says ACTIVE (or just approved). */
