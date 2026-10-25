@@ -244,7 +244,7 @@ export function subscriptionBelongsToEmail(
   return subscription.payerEmail.toLowerCase() === accountEmail.trim().toLowerCase();
 }
 
-/** Subscription counts as paying when PayPal says ACTIVE (or just approved). */
+/** A subscription must be active before it can grant paid access. */
 export function subscriptionIsPaying(status: string): boolean {
-  return status === 'ACTIVE' || status === 'APPROVED';
+  return status === 'ACTIVE';
 }

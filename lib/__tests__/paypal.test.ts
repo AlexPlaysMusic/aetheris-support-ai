@@ -167,9 +167,10 @@ describe('ensureProPlan', () => {
 });
 
 describe('subscriptionIsPaying', () => {
-  it('accepts ACTIVE and APPROVED only', () => {
+  it('accepts only ACTIVE subscriptions', () => {
     expect(subscriptionIsPaying('ACTIVE')).toBe(true);
-    expect(subscriptionIsPaying('APPROVED')).toBe(true);
+    expect(subscriptionIsPaying('APPROVED')).toBe(false);
+    expect(subscriptionIsPaying('APPROVAL_PENDING')).toBe(false);
     expect(subscriptionIsPaying('CANCELLED')).toBe(false);
     expect(subscriptionIsPaying('SUSPENDED')).toBe(false);
     expect(subscriptionIsPaying('')).toBe(false);
