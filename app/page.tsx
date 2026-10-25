@@ -6,6 +6,7 @@ import type { Message } from 'ai';
 import ReactMarkdown from 'react-markdown';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import HeaderBrand from './components/Header';
+import WorkspacePanel from './components/WorkspacePanel';
 import {
   CREDIT_COST_IMAGE_GEN,
   CREDIT_COST_IMAGE_GEN_ASTEROID,
@@ -32,6 +33,7 @@ import {
   Coins,
   Copy,
   FileText,
+  FolderKanban,
   LifeBuoy,
   Lock,
   LogIn,
@@ -1002,6 +1004,7 @@ export default function ChatPage() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [contactEmail, setContactEmail] = useState('');
   const [contactMessage, setContactMessage] = useState('');
@@ -2291,6 +2294,15 @@ export default function ChatPage() {
 
           <HeaderBrand size={24} />
 
+          <button
+            type="button"
+            onClick={() => setWorkspaceOpen(true)}
+            className="hidden items-center gap-1.5 rounded-full border border-cyan-300/20 bg-cyan-400/[0.07] px-3 py-1.5 text-[12px] font-semibold text-cyan-200 transition hover:bg-cyan-400/15 sm:flex"
+            aria-label="Open project workspace"
+          >
+            <FolderKanban size={14} /> Workspace
+          </button>
+
           <div className="ml-auto flex items-center gap-2">
             <div ref={modelMenuRef}>
             <div className="relative">
@@ -2526,6 +2538,16 @@ export default function ChatPage() {
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-400 px-3 py-2.5 text-sm font-semibold text-[#06121a] transition hover:bg-cyan-300 active:scale-[0.98]"
             >
               <Plus size={16} strokeWidth={2.5} /> New Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSidebarOpen(false);
+                setWorkspaceOpen(true);
+              }}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/20 bg-cyan-400/[0.07] px-3 py-2.5 text-sm font-semibold text-cyan-200 transition hover:bg-cyan-400/15"
+            >
+              <FolderKanban size={16} /> Project workspace
             </button>
           </div>
 
@@ -3270,6 +3292,8 @@ export default function ChatPage() {
           </p>
         </div>
       </div>
+
+      {workspaceOpen && <WorkspacePanel onClose={() => setWorkspaceOpen(false)} />}
 
       {/* ------------------------- upgrade modal ------------------------- */}
       {upgradeOpen && (
