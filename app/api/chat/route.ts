@@ -55,7 +55,7 @@ function resolveGeminiModel(select: unknown): string {
     return (process.env.GEMINI_PRO_MODEL ?? 'gemini-3.8-flash').trim() || 'gemini-3.8-flash';
   }
   if (select === 'aetheris-asteroid') {
-    return (process.env.GEMINI_ASTEROID_MODEL ?? 'gemini-3.5-flash').trim() || 'gemini-3.5-flash';
+    return (process.env.GEMINI_ASTEROID_MODEL ?? 'gemini-1.5-flash').trim() || 'gemini-1.5-flash';
   }
   return (process.env.GEMINI_BASIC_MODEL ?? 'gemini-3.1-flash-lite').trim() || 'gemini-3.1-flash-lite';
 }
@@ -142,7 +142,7 @@ export async function GET() {
     return Response.json({
       provider: 'gemini',
       basicModel: (process.env.GEMINI_BASIC_MODEL ?? 'gemini-3.1-flash-lite').trim(),
-      asteroidModel: (process.env.GEMINI_ASTEROID_MODEL ?? 'gemini-3.5-flash').trim(),
+      asteroidModel: (process.env.GEMINI_ASTEROID_MODEL ?? 'gemini-1.5-flash').trim(),
       proModel: (process.env.GEMINI_PRO_MODEL ?? 'gemini-3.8-flash').trim(),
       hasKey: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY)
     });

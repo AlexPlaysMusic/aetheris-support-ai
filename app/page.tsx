@@ -3396,7 +3396,7 @@ export default function ChatPage() {
                     features={
                       purchaseTier === 'asteroid'
                         ? [
-                            'Balanced v3.5 model for everyday+ chats',
+                            'Balanced v1.5 model for everyday+ chats',
                             '500 daily credits',
                             'Images at 7 credits',
                             'Up to 60 saved chats'
@@ -3423,7 +3423,7 @@ export default function ChatPage() {
                   features={
                     purchaseTier === 'asteroid'
                       ? [
-                          'Balanced v3.5 model for everyday+ chats',
+                          'Balanced v1.5 model for everyday+ chats',
                           '500 daily credits',
                           'Images at 7 credits',
                           'Up to 60 saved chats'
