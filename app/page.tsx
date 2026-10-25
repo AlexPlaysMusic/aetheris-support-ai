@@ -1002,6 +1002,7 @@ export default function ChatPage() {
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [purchaseTier, setPurchaseTier] = useState<'asteroid' | 'pro'>('asteroid');
   const [accountOpen, setAccountOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -2350,6 +2351,7 @@ export default function ChatPage() {
                         }
                         onClick={() => {
                           if (!unlocked) {
+                            setPurchaseTier(need === 'pro' ? 'pro' : 'asteroid');
                             setModelOpen(false);
                             setUpgradeOpen(true);
                             return;
@@ -3352,6 +3354,33 @@ export default function ChatPage() {
                   ))}
                 </div>
               )}
+              <div
+                className="mb-3 grid grid-cols-2 gap-1.5 rounded-xl border border-white/10 bg-abyss p-1"
+                role="group"
+                aria-label="Choose one model subscription"
+              >
+                {(['asteroid', 'pro'] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => {
+                      setPurchaseTier(option);
+                      setBillingError(null);
+                    }}
+                    aria-pressed={purchaseTier === option}
+                    className={`rounded-lg px-2 py-2 text-[12.5px] font-semibold transition ${
+                      purchaseTier === option
+                        ? 'bg-cyan-400/15 text-cyan-200'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {option === 'asteroid' ? 'Asteroid · $10/mo' : 'Pro · $20/mo'}
+                  </button>
+                ))}
+              </div>
+              <p className="mb-3 text-center text-[11.5px] text-slate-400">
+                Choose one model plan. Each subscription is purchased separately.
+              </p>
               {effectivePayMethod === 'paypal' ? (
                 <PayPalScriptProvider
                   options={{
@@ -3361,64 +3390,58 @@ export default function ChatPage() {
                     vault: true
                   }}
                 >
-                  <div className="space-y-3">
-                    <PlanCard
-                      name="Aetheris Asteroid"
-                      price="$10 / month"
-                      features={[
-                        'Balanced v3.5 model for everyday+ chats',
-                        '500 daily credits',
-                        'Images at 7 credits',
-                        'Up to 60 saved chats'
-                      ]}
-                      owned={tier === 'asteroid'}
-                    >
-                      {planAction('asteroid', '$10 / month')}
-                    </PlanCard>
-                    <PlanCard
-                      name="Aetheris Pro"
-                      price="$20 / month"
-                      features={[
-                        'Strongest reasoning model',
-                        '1,000 daily credits for heavy use',
-                        'Half-price images (5 credits)',
-                        'Up to 100 saved chats'
-                      ]}
-                      owned={tier === 'pro'}
-                    >
-                      {planAction('pro', '$20 / month')}
-                    </PlanCard>
-                  </div>
+                  <PlanCard
+                    name={purchaseTier === 'asteroid' ? 'Aetheris Asteroid' : 'Aetheris Pro'}
+                    price={purchaseTier === 'asteroid' ? '$10 / month' : '$20 / month'}
+                    features={
+                      purchaseTier === 'asteroid'
+                        ? [
+                            'Balanced v3.5 model for everyday+ chats',
+                            '500 daily credits',
+                            'Images at 7 credits',
+                            'Up to 60 saved chats'
+                          ]
+                        : [
+                            'Strongest reasoning model',
+                            '1,000 daily credits for heavy use',
+                            'Half-price images (5 credits)',
+                            'Up to 100 saved chats'
+                          ]
+                    }
+                    owned={tier === purchaseTier}
+                  >
+                    {planAction(
+                      purchaseTier,
+                      purchaseTier === 'asteroid' ? '$10 / month' : '$20 / month'
+                    )}
+                  </PlanCard>
                 </PayPalScriptProvider>
               ) : (
-                <div className="space-y-3">
-                  <PlanCard
-                    name="Aetheris Asteroid"
-                    price="$10 / month"
-                    features={[
-                      'Balanced v3.5 model for everyday+ chats',
-                      '500 daily credits',
-                      'Images at 7 credits',
-                      'Up to 60 saved chats'
-                    ]}
-                    owned={tier === 'asteroid'}
-                  >
-                    {planAction('asteroid', '$10 / month')}
-                  </PlanCard>
-                  <PlanCard
-                    name="Aetheris Pro"
-                    price="$20 / month"
-                    features={[
-                      'Strongest reasoning model',
-                      '1,000 daily credits for heavy use',
-                      'Half-price images (5 credits)',
-                      'Up to 100 saved chats'
-                    ]}
-                    owned={tier === 'pro'}
-                  >
-                    {planAction('pro', '$20 / month')}
-                  </PlanCard>
-                </div>
+                <PlanCard
+                  name={purchaseTier === 'asteroid' ? 'Aetheris Asteroid' : 'Aetheris Pro'}
+                  price={purchaseTier === 'asteroid' ? '$10 / month' : '$20 / month'}
+                  features={
+                    purchaseTier === 'asteroid'
+                      ? [
+                          'Balanced v3.5 model for everyday+ chats',
+                          '500 daily credits',
+                          'Images at 7 credits',
+                          'Up to 60 saved chats'
+                        ]
+                      : [
+                          'Strongest reasoning model',
+                          '1,000 daily credits for heavy use',
+                          'Half-price images (5 credits)',
+                          'Up to 100 saved chats'
+                        ]
+                  }
+                  owned={tier === purchaseTier}
+                >
+                  {planAction(
+                    purchaseTier,
+                    purchaseTier === 'asteroid' ? '$10 / month' : '$20 / month'
+                  )}
+                </PlanCard>
               )}
             </>
           )}
