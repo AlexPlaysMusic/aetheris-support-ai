@@ -744,92 +744,16 @@ function ProfileAvatar({
   );
 }
 
-/** Basic-plan AI avatar: faceted crystal bot head, transparent background. */
+/** Aetheris assistant avatar. */
 function BasicBotAvatar({ size = 32 }: { size?: number }) {
   return (
-    <span
-      className="block shrink-0 overflow-hidden rounded-full border border-white/15 bg-transparent"
-      style={{ width: size, height: size }}
-      role="img"
-      aria-label="Aetheris Basic"
-    >
-      <svg width={size} height={size} viewBox="0 0 64 64" fill="none">
-        <defs>
-          <linearGradient id="crystal-edge" x1="8" y1="4" x2="56" y2="58">
-            <stop offset="0%" stopColor="#99F6E4" />
-            <stop offset="55%" stopColor="#22D3EE" />
-            <stop offset="100%" stopColor="#0E7490" />
-          </linearGradient>
-        </defs>
-        {/* crown spikes */}
-        <polygon points="21,11 23,3 26,11" fill="#22D3EE" opacity="0.85" />
-        <polygon points="38,11 41,3 43,11" fill="#22D3EE" opacity="0.85" />
-        {/* helmet shell */}
-        <polygon
-          points="32,5 45,10 49,22 47,38 40,50 32,54 24,50 17,38 15,22 19,10"
-          fill="rgba(34,211,238,0.07)"
-          stroke="url(#crystal-edge)"
-          strokeWidth="2.5"
-          strokeLinejoin="round"
-        />
-        {/* brow facet */}
-        <polyline
-          points="22,23 32,18 42,23"
-          stroke="#67E8F9"
-          strokeWidth="1.4"
-          opacity="0.6"
-          strokeLinejoin="round"
-        />
-        {/* ear fins */}
-        <polygon
-          points="15,25 10,28 10,40 15,43"
-          fill="rgba(34,211,238,0.08)"
-          stroke="#22D3EE"
-          strokeWidth="1.4"
-          strokeLinejoin="round"
-        />
-        <polygon
-          points="49,25 54,28 54,40 49,43"
-          fill="rgba(34,211,238,0.08)"
-          stroke="#22D3EE"
-          strokeWidth="1.4"
-          strokeLinejoin="round"
-        />
-        {/* dotted LED eyes */}
-        <g fill="#67E8F9">
-          <circle cx="24" cy="31" r="1" />
-          <circle cx="26.5" cy="31" r="1" />
-          <circle cx="29" cy="31" r="1" />
-          <circle cx="24" cy="33.5" r="1" opacity="0.55" />
-          <circle cx="26.5" cy="33.5" r="1" opacity="0.55" />
-          <circle cx="29" cy="33.5" r="1" opacity="0.55" />
-          <circle cx="35" cy="31" r="1" />
-          <circle cx="37.5" cy="31" r="1" />
-          <circle cx="40" cy="31" r="1" />
-          <circle cx="35" cy="33.5" r="1" opacity="0.55" />
-          <circle cx="37.5" cy="33.5" r="1" opacity="0.55" />
-          <circle cx="40" cy="33.5" r="1" opacity="0.55" />
-        </g>
-        {/* wireframe muzzle dome */}
-        <path
-          d="M23 51 A9 9 0 0 1 41 51"
-          stroke="#67E8F9"
-          strokeWidth="1.2"
-        />
-        <path
-          d="M24.5 47.5 A8 8 0 0 0 39.5 47.5"
-          stroke="#67E8F9"
-          strokeWidth="1"
-          opacity="0.7"
-        />
-        <line x1="27.5" y1="44" x2="27.5" y2="51" stroke="#67E8F9" strokeWidth="1" opacity="0.7" />
-        <line x1="32" y1="43" x2="32" y2="52" stroke="#67E8F9" strokeWidth="1" opacity="0.7" />
-        <line x1="36.5" y1="44" x2="36.5" y2="51" stroke="#67E8F9" strokeWidth="1" opacity="0.7" />
-        {/* cheek facets */}
-        <line x1="20" y1="41" x2="26" y2="48" stroke="#22D3EE" strokeWidth="1.2" opacity="0.5" />
-        <line x1="44" y1="41" x2="38" y2="48" stroke="#22D3EE" strokeWidth="1.2" opacity="0.5" />
-      </svg>
-    </span>
+    <img
+      src="/aetheris-bot.png"
+      width={size}
+      height={size}
+      className="block shrink-0 rounded-lg border border-white/15 object-cover"
+      alt="Aetheris"
+    />
   );
 }
 
