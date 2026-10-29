@@ -142,7 +142,7 @@ export default function WorkspacePanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
-      <div className="flex max-h-[92dvh] w-full max-w-5xl overflow-hidden rounded-2xl border border-white/10 bg-[#111827] shadow-2xl">
+      <div className="flex max-h-[92dvh] w-full max-w-5xl overflow-hidden rounded-2xl border border-white/10 bg-[#0C0D16] shadow-2xl">
         <aside className="hidden w-52 shrink-0 border-r border-white/10 bg-[#0d1421] p-3 sm:block">
           <div className="mb-4 flex items-center gap-2 px-2 text-sm font-semibold text-white"><Sparkles size={16} className="text-cyan-300" /> Workspace</div>
           <div className="space-y-1">
@@ -155,7 +155,7 @@ export default function WorkspacePanel({ onClose }: { onClose: () => void }) {
           <p className="mt-6 px-2 text-[11px] leading-5 text-slate-500">Files and memories stay in this browser until you connect a synced project backend.</p>
         </aside>
         <section className="min-w-0 flex-1 overflow-y-auto">
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[#111827]/95 px-4 py-3 backdrop-blur">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/10 bg-[#0C0D16]/95 px-4 py-3 backdrop-blur">
             <div><p className="text-sm font-semibold text-white">{tabs.find((item) => item.id === tab)?.label}</p><p className="text-[11px] text-slate-500">Control what Aetheris knows, checks, and can do.</p></div>
             <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-white/5 hover:text-white" aria-label="Close workspace"><X size={18} /></button>
           </div>

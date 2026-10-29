@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   metadataBase: new URL('https://www.aetherisai.me'),
   icons: {
-    icon: '/icon.svg',
+    icon: '/icon-512.png',
     apple: '/apple-touch-icon.png'
   },
   appleWebApp: {
@@ -42,7 +42,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0B0F17',
+  themeColor: '#05050A',
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover'

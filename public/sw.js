@@ -2,13 +2,14 @@
  * Network-first for pages (always fresh when online, cached home as
  * fallback), cache-first for our own static assets. API routes and
  * non-GET requests are never intercepted. Version the cache to update. */
-const CACHE = 'aetheris-v1';
+const CACHE = 'aetheris-v2';
 const SHELL = [
   '/',
   '/manifest.json',
   '/icon.svg',
   '/icon-192.png',
   '/icon-512.png',
+  '/aetheris-bot.png',
   '/apple-touch-icon.png'
 ];
 

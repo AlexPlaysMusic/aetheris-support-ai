@@ -1,8 +1,7 @@
 import Image from 'next/image';
 
 /**
- * Top-navbar brand section: 24px geometric 'A' mark (vector, so it stays
- * crisp on retina displays) next to the Aetheris wordmark.
+ * Top-navbar brand section: Aetheris icon next to the wordmark.
  */
 export default function HeaderBrand({
   size = 24,
@@ -14,7 +13,7 @@ export default function HeaderBrand({
   return (
     <span className="flex items-center gap-2.5">
       <Image
-        src="/icon.svg"
+        src="/icon-512.png"
         alt="Aetheris logo"
         width={size}
         height={size}
