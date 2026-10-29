@@ -29,6 +29,14 @@
       ],
       "icon": "assets/icon.ico"
     },
+    "protocols": [
+      {
+        "name": "Aetheris sign-in",
+        "schemes": [
+          "aetheris"
+        ]
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "perMachine": false,

@@ -6,6 +6,7 @@ import type { Message } from 'ai';
 import ReactMarkdown from 'react-markdown';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import HeaderBrand from './components/Header';
+import AuthModal from './components/AuthModal';
 import WorkspacePanel from './components/WorkspacePanel';
 import {
   CREDIT_COST_IMAGE_GEN,
@@ -928,6 +929,7 @@ export default function ChatPage() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [purchaseTier, setPurchaseTier] = useState<'asteroid' | 'pro'>('asteroid');
   const [accountOpen, setAccountOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1084,6 +1086,23 @@ export default function ChatPage() {
     attachErrTimer.current = setTimeout(() => setAttachError(null), 5000);
   };
   const { data: session, status } = useSession();
+  useEffect(() => {
+    const ticket = new URLSearchParams(window.location.hash.slice(1)).get('desktopTicket');
+    if (!ticket) return;
+    window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+    void signIn('desktop-ticket', { ticket, redirect: false })
+      .then(async (result) => {
+        if (result?.ok) {
+          window.location.reload();
+          return;
+        }
+        setAuthOpen(true);
+      })
+      .catch((error: unknown) => {
+        console.error('[aetheris/auth] desktop sign-in ticket could not be redeemed:', error);
+        setAuthOpen(true);
+      });
+  }, []);
   const userId = session?.user?.id || session?.user?.email || null;
   const storeKey = storageKeyFor(userId);
   const creditId = useMemo(
@@ -2410,7 +2429,7 @@ export default function ChatPage() {
             ) : (
               <button
                 type="button"
-                onClick={() => signIn('google')}
+                onClick={() => setAuthOpen(true)}
                 className="flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[13px] font-semibold text-slate-900 transition hover:bg-slate-200"
               >
                 <LogIn size={15} />
@@ -2508,7 +2527,7 @@ export default function ChatPage() {
               </p>
               <button
                 type="button"
-                onClick={() => signIn('google')}
+                onClick={() => setAuthOpen(true)}
                 className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[13px] font-semibold text-slate-900 transition hover:bg-slate-200"
               >
                 <LogIn size={14} /> Sign in with Google
@@ -3015,7 +3034,7 @@ export default function ChatPage() {
                   You&apos;re out of free credits for today.{' '}
                   <button
                     type="button"
-                    onClick={() => signIn('google')}
+                    onClick={() => setAuthOpen(true)}
                     className="font-semibold underline underline-offset-2 hover:text-amber-100"
                   >
                     Sign in for {CREDIT_DAILY_USER} a day
@@ -3220,6 +3239,7 @@ export default function ChatPage() {
       </div>
 
       {workspaceOpen && <WorkspacePanel onClose={() => setWorkspaceOpen(false)} />}
+      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
 
       {/* ------------------------- upgrade modal ------------------------- */}
       {upgradeOpen && (
@@ -3235,7 +3255,7 @@ export default function ChatPage() {
               type="button"
               onClick={() => {
                 setUpgradeOpen(false);
-                signIn('google');
+                setAuthOpen(true);
               }}
               className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
             >

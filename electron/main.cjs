@@ -2,6 +2,36 @@ const { app, BrowserWindow, shell } = require('electron');
 
 const APP_URL = process.env.AETHERIS_DESKTOP_URL || 'https://www.aetherisai.me';
 const APP_HOST = new URL(APP_URL).hostname;
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+let mainWindow;
+let queuedTicket = process.argv
+  .map(extractDesktopTicket)
+  .find((ticket) => ticket !== null) ?? null;
+
+if (!gotSingleInstanceLock) app.quit();
+
+function extractDesktopTicket(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'aetheris:' || url.hostname !== 'auth') return null;
+    const ticket = url.searchParams.get('ticket');
+    return ticket && /^[a-f0-9]{64}$/.test(ticket) ? ticket : null;
+  } catch {
+    return null;
+  }
+}
+
+function receiveDesktopUrl(rawUrl) {
+  const ticket = extractDesktopTicket(rawUrl);
+  if (!ticket) return;
+  queuedTicket = ticket;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+  void mainWindow.loadURL(`${APP_URL}/#desktopTicket=${encodeURIComponent(ticket)}`);
+    mainWindow.show();
+    mainWindow.focus();
+    queuedTicket = null;
+  }
+}
 
 function isTrustedNavigation(rawUrl) {
   let url;
@@ -14,8 +44,6 @@ function isTrustedNavigation(rawUrl) {
   const host = url.hostname.toLowerCase();
   return (
     host === APP_HOST ||
-    host.endsWith('.google.com') ||
-    host.endsWith('.googleapis.com') ||
     host === 'paypal.com' ||
     host.endsWith('.paypal.com') ||
     host === 'stripe.com' ||
@@ -35,6 +63,20 @@ function openExternal(rawUrl) {
 }
 
 function restrictNavigation(event, rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    if (
+      url.hostname.toLowerCase() === APP_HOST &&
+      url.pathname === '/desktop-auth/start'
+    ) {
+      event.preventDefault();
+      openExternal(rawUrl);
+      return;
+    }
+  } catch {
+    event.preventDefault();
+    return;
+  }
   if (isTrustedNavigation(rawUrl)) return;
   event.preventDefault();
   openExternal(rawUrl);
@@ -51,7 +93,7 @@ function configureWebContents(contents) {
 }
 
 function createWindow() {
-  const window = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
     minWidth: 1024,
@@ -69,24 +111,43 @@ function createWindow() {
     }
   });
 
-  window.removeMenu();
-  window.once('ready-to-show', () => window.show());
-  void window.loadURL(APP_URL).catch((error) => {
+  mainWindow.removeMenu();
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+  const initialUrl = queuedTicket
+    ? `${APP_URL}/#desktopTicket=${encodeURIComponent(queuedTicket)}`
+    : APP_URL;
+  queuedTicket = null;
+  void mainWindow.loadURL(initialUrl).catch((error) => {
     console.error('[aetheris-desktop] Could not load the Aetheris workspace:', error);
   });
 }
 
-app.whenReady().then(() => {
-  app.setName('Aetheris Computer');
-  app.on('web-contents-created', (_event, contents) => {
-    configureWebContents(contents);
+if (gotSingleInstanceLock) {
+  app.on('second-instance', (_event, commandLine) => {
+    const deepLink = commandLine.find((argument) => argument.startsWith('aetheris://'));
+    if (deepLink) receiveDesktopUrl(deepLink);
+    else if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    receiveDesktopUrl(url);
   });
-});
+  app.whenReady().then(() => {
+    app.setAsDefaultProtocolClient('aetheris');
+    app.setName('Aetheris Computer');
+    app.on('web-contents-created', (_event, contents) => {
+      configureWebContents(contents);
+    });
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+}

@@ -54,6 +54,11 @@ export default function PrivacyPage() {
               enforce fair-use limits. Counters expire automatically.
             </li>
             <li>
+              <strong className="text-slate-100">For email sign-in:</strong> we send a
+              one-time code to the address you enter. A protected code verifier and
+              short-lived sign-in data are kept in Redis and expire automatically.
+            </li>
+            <li>
               <strong className="text-slate-100">If you buy Pro:</strong> PayPal
               handles payment; we store only your Pro status, never card details.
             </li>
@@ -66,6 +71,14 @@ export default function PrivacyPage() {
             photo so we can show your profile and keep per-account history and
             credits. We use nothing else from your Google account. Signing out
             keeps your stored chats on that device until you clear them.
+          </p>
+        </Section>
+
+        <Section title="Sign-in with email">
+          <p>
+            If you choose email sign-in, Resend delivers a one-time verification code
+            to the address you enter. The code expires after 10 minutes and can only
+            be used once. We use your verified email address to identify your account.
           </p>
         </Section>
 
