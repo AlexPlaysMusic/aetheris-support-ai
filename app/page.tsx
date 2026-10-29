@@ -2530,7 +2530,7 @@ export default function ChatPage() {
                 onClick={() => setAuthOpen(true)}
                 className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[13px] font-semibold text-slate-900 transition hover:bg-slate-200"
               >
-                <LogIn size={14} /> Sign in with Google
+                <LogIn size={14} /> Sign in
               </button>
             </div>
           )}
