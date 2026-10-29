@@ -1,35 +1,28 @@
+import Link from 'next/link';
 import Image from 'next/image';
 
 /**
- * Top-navbar brand section: Aetheris icon next to the wordmark.
+ * Clickable Aetheris banner used as the app's home link.
  */
 export default function HeaderBrand({
-  size = 24,
-  tagline = true
+  size = 24
 }: {
   size?: number;
-  tagline?: boolean;
 }) {
   return (
-    <span className="flex items-center gap-2.5">
+    <Link
+      href="/"
+      aria-label="Aetheris AI home"
+      className="inline-flex shrink-0 items-center rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+    >
       <Image
-        src="/icon-512.png"
-        alt="Aetheris logo"
-        width={size}
+        src="/aetheris-banner.png"
+        alt="Aetheris AI"
+        width={Math.round(size * 3.5)}
         height={size}
         priority
-        className="shrink-0 rounded-md"
+        className="h-auto w-auto"
       />
-      <span className="leading-tight">
-        <span className="block text-[15px] font-semibold tracking-tight text-white">
-          Aetheris
-        </span>
-        {tagline && (
-          <span className="hidden text-[11px] text-slate-400 sm:block">
-            Your everyday AI chat
-          </span>
-        )}
-      </span>
-    </span>
+    </Link>
   );
 }

@@ -2437,7 +2437,7 @@ export default function ChatPage() {
           }`}
         >
           <div className="flex items-center gap-2 border-b border-white/5 p-3">
-            <HeaderBrand size={24} tagline={false} />
+            <HeaderBrand size={24} />
             <button
               type="button"
               onClick={() => setSidebarOpen(false)}
