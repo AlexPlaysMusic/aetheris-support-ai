@@ -61,7 +61,7 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, account, user }) {
       if (account?.provider === 'google' && user.email && user.id) {
         try {
-          token.sub = await rememberGoogleIdentity(user.email, user.id);
+          await rememberGoogleIdentity(user.email, user.id);
         } catch (error) {
           console.error('[aetheris/auth] could not save Google email mapping:', error);
         }

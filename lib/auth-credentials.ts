@@ -100,11 +100,10 @@ export async function consumeEmailCode(
 export async function rememberGoogleIdentity(
   email: string,
   userId: string
-): Promise<string> {
+): Promise<void> {
   const redis = getSharedRedis();
-  if (!redis) return userId;
-  await redis.set(googleIdentityKey(email), userId, { nx: true });
-  return (await redis.get<string>(googleIdentityKey(email))) ?? userId;
+  if (!redis) return;
+  await redis.set(googleIdentityKey(email), userId);
 }
 
 export async function emailIdentity(email: string): Promise<string> {
