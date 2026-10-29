@@ -3,9 +3,9 @@ import './globals.css';
 import Providers from './providers';
 
 export const metadata: Metadata = {
-  title: 'Aetheris Computer | Chat',
+  title: 'Aetheris Computer | AI Workspace',
   description:
-    'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and model switching.',
+    'A desktop AI workspace for research, writing, project files, and verified answers.',
   manifest: '/manifest.json',
   metadataBase: new URL('https://www.aetherisai.me'),
   icons: {
@@ -18,34 +18,34 @@ export const metadata: Metadata = {
     title: 'Aetheris'
   },
   openGraph: {
-    title: 'Aetheris Computer | Chat',
+    title: 'Aetheris Computer | AI Workspace',
     description:
-      'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and photo understanding.',
+      'A desktop AI workspace for research, writing, project files, and verified answers.',
     url: '/',
     siteName: 'Aetheris',
     type: 'website',
     images: [
       {
-        url: '/aetheris-email.png',
+        url: '/aetheris-portal.png',
         width: 480,
         height: 480,
-        alt: 'Aetheris logo'
+        alt: 'Aetheris Computer portal logo'
       }
     ]
   },
   twitter: {
     card: 'summary',
-    title: 'Aetheris Computer | Chat',
+    title: 'Aetheris Computer | AI Workspace',
     description:
-      'Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and photo understanding.'
+      'A desktop AI workspace for research, writing, project files, and verified answers.',
+    images: ['/aetheris-portal.png']
   }
 };
 
 export const viewport: Viewport = {
   themeColor: '#05050A',
-  width: 'device-width',
-  initialScale: 1,
-  viewportFit: 'cover'
+  width: 1024,
+  initialScale: 1
 };
 
 export default function RootLayout({

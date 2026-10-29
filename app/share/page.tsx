@@ -17,9 +17,7 @@ export default function SharePage() {
     <div className="flex min-h-[100dvh] flex-col bg-abyss text-slate-100">
       <header className="sticky top-0 z-30 border-b border-white/5 bg-abyss/90 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-2 px-3">
-          <a href="/" aria-label="Back to Aetheris">
-            <HeaderBrand size={24} />
-          </a>
+          <HeaderBrand size={42} />
           <span className="ml-auto rounded-full border border-white/10 px-2.5 py-1 text-[11px] font-medium text-slate-400">
             Shared chat
           </span>

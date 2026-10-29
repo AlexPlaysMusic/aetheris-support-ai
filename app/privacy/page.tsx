@@ -23,7 +23,7 @@ export default function PrivacyPage() {
       <header className="sticky top-0 z-30 border-b border-white/5 bg-abyss/90 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-2 px-3">
           <a href="/" aria-label="Back to Aetheris">
-            <HeaderBrand size={24} />
+            <HeaderBrand size={40} />
           </a>
         </div>
       </header>

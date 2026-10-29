@@ -1,11 +1,16 @@
 {
   "name": "aetheris",
   "version": "1.0.0",
+  "description": "A desktop AI workspace for research, writing, project files, and verified answers.",
+  "author": "Aetheris",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "desktop": "electron .",
+    "desktop:installer": "electron-builder --projectDir electron --win nsis",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -35,10 +40,15 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.4.20",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
     "playwright-core": "^1.64.1",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.3",
     "vitest": "^2.1.9"
+  },
+  "allowScripts": {
+    "electron@45.1.0": true
   }
 }

@@ -1,0 +1,42 @@
+{
+  "name": "aetheris-computer-shell",
+  "version": "1.0.0",
+  "description": "Aetheris Computer desktop application shell.",
+  "author": "Aetheris",
+  "main": "main.cjs",
+  "private": true,
+  "build": {
+    "electronVersion": "45.1.0",
+    "appId": "me.aetherisai.computer",
+    "productName": "Aetheris Computer",
+    "directories": {
+      "output": "../release-installer",
+      "buildResources": "assets"
+    },
+    "files": [
+      "**/*"
+    ],
+    "asar": true,
+    "artifactName": "Aetheris-Computer-Setup-${version}-${arch}.${ext}",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Aetheris Computer",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

@@ -3,6 +3,9 @@
 /.next
 /out
 /build
+/release
+/release-installer
+/dist
 
 # env
 .env*.local

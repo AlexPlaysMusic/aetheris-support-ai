@@ -2201,23 +2201,23 @@ export default function ChatPage() {
 
   return (
     <div
-      className={`flex h-[100dvh] flex-col bg-abyss text-slate-100 ${
+      className={`flex h-[100dvh] flex-col bg-abyss text-slate-100 lg:pl-[280px] ${
         reduceMotion ? 'reduce-motion' : ''
       }`}
     >
       {/* ------------------------------- header ------------------------------ */}
       <header className="sticky top-0 z-30 border-b border-white/5 bg-abyss/90 backdrop-blur">
-        <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-2 px-3">
+        <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-4 px-6">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="rounded-lg p-2 text-slate-300 hover:bg-white/5 hover:text-white"
+            className="rounded-lg p-2 text-slate-300 hover:bg-white/5 hover:text-white lg:hidden"
             aria-label="Open navigation"
           >
             <Menu size={20} />
           </button>
 
-          <HeaderBrand size={24} />
+          <HeaderBrand size={42} />
 
           <button
             type="button"
@@ -2421,27 +2421,27 @@ export default function ChatPage() {
         </div>
       </header>
 
-      <div className="relative mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden">
+      <div className="relative mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden">
         {/* ------------------------------ drawer ----------------------------- */}
         {sidebarOpen && (
           <button
             type="button"
             aria-label="Close navigation"
             onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[1px]"
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[1px] lg:hidden"
           />
         )}
         <aside
           className={`fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-white/5 bg-surface transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
-            sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+            sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
           }`}
         >
           <div className="flex items-center gap-2 border-b border-white/5 p-3">
-            <HeaderBrand size={24} />
+            <HeaderBrand size={42} />
             <button
               type="button"
               onClick={() => setSidebarOpen(false)}
-              className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-white/5 hover:text-white"
+              className="ml-auto rounded-lg p-1.5 text-slate-400 hover:bg-white/5 hover:text-white lg:hidden"
               aria-label="Close sidebar"
             >
               <X size={18} />

@@ -1,11 +1,11 @@
 {
-  "name": "Aetheris AI Chat",
-  "short_name": "Aetheris",
-  "description": "Aetheris is a mobile-first AI chat experience with streaming responses, markdown, and photo understanding.",
+  "name": "Aetheris Computer",
+  "short_name": "Aetheris Computer",
+  "description": "A desktop AI workspace for research, writing, project files, and verified answers.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "landscape",
   "background_color": "#05050A",
   "theme_color": "#05050A",
   "icons": [
