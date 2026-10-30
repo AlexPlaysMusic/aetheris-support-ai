@@ -1,14 +1,14 @@
 {
-  "name": "aetheris-computer-shell",
+  "name": "aetheris-ai-desktop-shell",
   "version": "1.0.0",
-  "description": "Aetheris Computer desktop application shell.",
+  "description": "Aetheris AI desktop application shell.",
   "author": "Aetheris",
   "main": "main.cjs",
   "private": true,
   "build": {
     "electronVersion": "45.1.0",
     "appId": "me.aetherisai.computer",
-    "productName": "Aetheris Computer",
+    "productName": "Aetheris AI",
     "directories": {
       "output": "../release-installer",
       "buildResources": "assets"
@@ -17,7 +17,7 @@
       "**/*"
     ],
     "asar": true,
-    "artifactName": "Aetheris-Computer-Setup-${version}-${arch}.${ext}",
+    "artifactName": "Aetheris-AI-Setup-${version}-${arch}.${ext}",
     "win": {
       "target": [
         {
@@ -43,7 +43,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Aetheris Computer",
+      "shortcutName": "Aetheris AI",
       "deleteAppDataOnUninstall": false
     }
   }

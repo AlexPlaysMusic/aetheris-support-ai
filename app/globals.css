@@ -148,8 +148,80 @@ body {
   }
 }
 
+@keyframes message-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes thinking-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(103, 232, 249, 0.06),
+      0 0 18px rgba(34, 211, 238, 0.03);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(103, 232, 249, 0.24),
+      0 0 24px rgba(34, 211, 238, 0.12);
+  }
+}
+
+@keyframes thinking-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1);
+  }
+}
+
+@keyframes response-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
 .animate-rise {
   animation: rise-in 0.25s ease-out both;
+}
+.animate-message-arrive {
+  animation: message-arrive 0.42s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+.animate-thinking-glow {
+  animation: thinking-glow 2.4s ease-in-out infinite;
+}
+.thinking-dot {
+  animation: thinking-dot 1.15s ease-in-out infinite;
+}
+.assistant-response-enter {
+  animation: rise-in 0.38s cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+.assistant-response-enter .markdown-body {
+  background-image: linear-gradient(
+    100deg,
+    transparent 38%,
+    rgba(103, 232, 249, 0.045) 50%,
+    transparent 62%
+  );
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  animation: response-shimmer 1.15s ease-out both;
 }
 .animate-pop {
   animation: pop-in 0.22s cubic-bezier(0.21, 1.02, 0.73, 1) both;
@@ -166,6 +238,10 @@ body {
 
 /* Honor reduced motion: user toggle and OS setting both kill animation */
 .reduce-motion .animate-rise,
+.reduce-motion .animate-message-arrive,
+.reduce-motion .animate-thinking-glow,
+.reduce-motion .thinking-dot,
+.reduce-motion .assistant-response-enter,
 .reduce-motion .animate-pop,
 .reduce-motion .animate-fade,
 .reduce-motion .animate-menu,
@@ -175,6 +251,10 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-rise,
+  .animate-message-arrive,
+  .animate-thinking-glow,
+  .thinking-dot,
+  .assistant-response-enter,
   .animate-pop,
   .animate-fade,
   .animate-menu,

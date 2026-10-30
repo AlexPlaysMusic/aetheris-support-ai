@@ -3,9 +3,9 @@ import './globals.css';
 import Providers from './providers';
 
 export const metadata: Metadata = {
-  title: 'Aetheris Computer | AI Workspace',
+  title: 'Aetheris AI | AI Workspace',
   description:
-    'A desktop AI workspace for research, writing, project files, and verified answers.',
+    'Aetheris AI is your desktop workspace for research, writing, projects, and verified answers.',
   manifest: '/manifest.json',
   metadataBase: new URL('https://www.aetherisai.me'),
   icons: {
@@ -18,9 +18,9 @@ export const metadata: Metadata = {
     title: 'Aetheris'
   },
   openGraph: {
-    title: 'Aetheris Computer | AI Workspace',
+    title: 'Aetheris AI | AI Workspace',
     description:
-      'A desktop AI workspace for research, writing, project files, and verified answers.',
+      'Aetheris AI is your desktop workspace for research, writing, projects, and verified answers.',
     url: '/',
     siteName: 'Aetheris',
     type: 'website',
@@ -29,15 +29,15 @@ export const metadata: Metadata = {
         url: '/aetheris-portal.png',
         width: 480,
         height: 480,
-        alt: 'Aetheris Computer portal logo'
+        alt: 'Aetheris AI portal logo'
       }
     ]
   },
   twitter: {
     card: 'summary',
-    title: 'Aetheris Computer | AI Workspace',
+    title: 'Aetheris AI | AI Workspace',
     description:
-      'A desktop AI workspace for research, writing, project files, and verified answers.',
+      'Aetheris AI is your desktop workspace for research, writing, projects, and verified answers.',
     images: ['/aetheris-portal.png']
   }
 };

@@ -102,7 +102,7 @@ function createWindow() {
     autoHideMenuBar: true,
     backgroundColor: '#05050A',
     icon: `${__dirname}/assets/icon.ico`,
-    title: 'Aetheris Computer | AI Workspace',
+    title: 'Aetheris AI | AI Workspace',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -137,7 +137,7 @@ if (gotSingleInstanceLock) {
   });
   app.whenReady().then(() => {
     app.setAsDefaultProtocolClient('aetheris');
-    app.setName('Aetheris Computer');
+    app.setName('Aetheris AI');
     app.on('web-contents-created', (_event, contents) => {
       configureWebContents(contents);
     });

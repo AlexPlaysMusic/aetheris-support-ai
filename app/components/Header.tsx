@@ -2,7 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 
 /**
- * Clickable Aetheris Computer brand used as the app's home link.
+ * Clickable Aetheris AI brand used as the app's home link.
  */
 export default function HeaderBrand({
   size = 38
@@ -25,7 +25,7 @@ export default function HeaderBrand({
       />
       <span className="ml-2.5 leading-tight">
         <span className="block whitespace-nowrap text-[15px] font-semibold tracking-tight text-white">
-          Aetheris Computer
+          Aetheris AI
         </span>
         <span className="block whitespace-nowrap text-[10px] font-medium tracking-wide text-cyan-200/80">
           AI WORKSPACE

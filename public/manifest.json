@@ -1,7 +1,7 @@
 {
-  "name": "Aetheris Computer",
-  "short_name": "Aetheris Computer",
-  "description": "A desktop AI workspace for research, writing, project files, and verified answers.",
+  "name": "Aetheris AI",
+  "short_name": "Aetheris AI",
+  "description": "A desktop AI workspace for research, writing, projects, and verified answers.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

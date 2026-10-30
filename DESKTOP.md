@@ -1,4 +1,4 @@
-# Aetheris Computer for Windows
+# Aetheris AI for Windows
 
 The Windows installer is built with:
 
@@ -8,16 +8,16 @@ npm run desktop:installer
 ```
 
 The installer is written to
-`release-installer/Aetheris-Computer-Setup-1.0.0-x64.exe`.
+`release-installer/Aetheris-AI-Setup-1.0.0-x64.exe`.
 It creates Start menu and desktop shortcuts and installs for the current
 Windows user.
 
-Aetheris Computer is a desktop application that securely opens the hosted
+Aetheris AI is a desktop application that securely opens the hosted
 Aetheris workspace. An internet connection is required. Sign-in, AI requests,
 and billing continue to use the configured Aetheris services; no provider
 secrets are included in the installer.
 
-Google sign-in opens in the system browser and returns to Aetheris Computer.
+Google sign-in opens in the system browser and returns to Aetheris AI.
 The installed app registers the `aetheris://` sign-in callback. Email sign-in
 sends a single-use code to the address entered by the user. Email-code sign-in
 requires `RESEND_API_KEY`, `NEXTAUTH_SECRET`, and the Upstash Redis credentials

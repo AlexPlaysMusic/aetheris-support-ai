@@ -29,7 +29,7 @@ export default function DesktopAuthStartPage() {
         />
         <h1 className="mt-5 text-xl font-semibold text-white">Continue to Aetheris</h1>
         <p className="mt-2 text-sm leading-6 text-slate-400">
-          Google sign-in is opening in your browser. After you approve access, Aetheris Computer will finish signing you in.
+          Google sign-in is opening in your browser. After you approve access, Aetheris AI will finish signing you in.
         </p>
         <button
           type="button"

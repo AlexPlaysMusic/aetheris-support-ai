@@ -2771,6 +2771,8 @@ export default function ChatPage() {
               {(Array.isArray(messages) ? messages : []).map((m, index) => {
                 const role = m !== null && typeof m === 'object' ? m.role : 'assistant';
                 const isUser = role === 'user';
+                const isCurrentAssistant =
+                  !isUser && index === messages.length - 1;
                 const attachedImages = isUser ? messageImages(m) : [];
                 const attachedFiles = isUser ? messageFiles(m) : [];
                 const bodyText = typeof m?.content === 'string' ? m.content : '';
@@ -2783,7 +2785,8 @@ export default function ChatPage() {
                 return (
                   <div
                     key={key}
-                    className={`animate-rise group flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}
+                    className={`animate-message-arrive group flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}
+                    style={{ animationDelay: `${Math.min(index, 5) * 35}ms` }}
                   >
                     {showAvatars && (
                       <div className="mt-0.5 h-8 w-8 shrink-0">
@@ -2810,7 +2813,7 @@ export default function ChatPage() {
                         isUser
                           ? 'rounded-tr-md border border-white/10 bg-white/[0.07] text-slate-100'
                           : 'rounded-tl-md border border-white/5 bg-surface text-slate-100'
-                      } ${!isUser && isLoading && m === messages[messages.length - 1] ? 'stream-caret' : ''}`}
+                      } ${isCurrentAssistant && isLoading ? 'stream-caret' : ''}`}
                     >
                       {isUser ? (
                         <div>
@@ -2865,6 +2868,10 @@ export default function ChatPage() {
                       ) : (
                         <div
                           className={`min-w-0 ${
+                            isCurrentAssistant && !isLoading
+                              ? 'assistant-response-enter'
+                              : ''
+                          } ${
                             fontSize === 'S'
                               ? 'msg-font-s'
                               : fontSize === 'L'
@@ -2968,22 +2975,34 @@ export default function ChatPage() {
 
               {isLoading &&
                 messages[messages.length - 1]?.role === 'user' && (
-                  <div className="flex gap-2.5">
+                  <div
+                    className="animate-message-arrive flex gap-2.5"
+                    role="status"
+                    aria-label="Aetheris is thinking"
+                  >
                     {showAvatars && (
                       <div className="h-8 w-8 shrink-0">
                         <BasicBotAvatar size={32} />
                       </div>
                     )}
-                    <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-md border border-white/5 bg-surface px-4 py-3">
-                      {[0, 1, 2].map((d) => (
-                        <span
-                          key={d}
-                          className={`h-1.5 w-1.5 rounded-full bg-slate-400 ${
-                            reduceMotion ? '' : 'animate-bounce'
-                          }`}
-                          style={{ animationDelay: `${d * 150}ms` }}
-                        />
-                      ))}
+                    <div className="animate-thinking-glow flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-cyan-300/10 bg-surface px-4 py-3">
+                      <span className="text-[12px] font-medium text-slate-400">
+                        Thinking
+                      </span>
+                      <span
+                        className="flex items-center gap-1.5"
+                        aria-hidden="true"
+                      >
+                        {[0, 1, 2].map((d) => (
+                          <span
+                            key={d}
+                            className={`h-1.5 w-1.5 rounded-full bg-cyan-300 ${
+                              reduceMotion ? '' : 'thinking-dot'
+                            }`}
+                            style={{ animationDelay: `${d * 150}ms` }}
+                          />
+                        ))}
+                      </span>
                     </div>
                   </div>
                 )}
