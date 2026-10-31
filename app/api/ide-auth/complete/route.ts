@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       headers: { 'Cache-Control': 'no-store' }
     });
   } catch (error) {
-    console.error('[aetheris/ide-auth] sign-in handoff failed:', error);
+    console.error('[aetheris/vscode-auth] sign-in handoff failed:', error);
     return NextResponse.json(
       { error: 'Could not finish VS Code sign-in. Please try again.' },
       { status: 503 }

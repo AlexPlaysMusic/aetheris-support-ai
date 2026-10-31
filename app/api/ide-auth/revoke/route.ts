@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     }
     return new Response(null, { status: 204 });
   } catch (error) {
-    console.error('[aetheris/ide-auth] session revocation failed:', error);
+    console.error('[aetheris/vscode-auth] session revocation failed:', error);
     return NextResponse.json(
       { error: 'Could not revoke the VS Code session.' },
       { status: 503 }

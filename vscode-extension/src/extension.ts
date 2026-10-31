@@ -130,7 +130,7 @@ class AetherisChatView implements vscode.WebviewViewProvider {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/auth/ide/redeem`, {
+      const response = await fetch(`${API_BASE}/api/ide-auth/redeem`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticket })
@@ -166,7 +166,7 @@ class AetherisChatView implements vscode.WebviewViewProvider {
     try {
       const state = randomBytes(32).toString('hex');
       await this.context.globalState.update(PENDING_STATE_KEY, state);
-      const response = await fetch(`${API_BASE}/api/auth/ide/start`, {
+      const response = await fetch(`${API_BASE}/api/ide-auth/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state })
@@ -215,7 +215,7 @@ class AetherisChatView implements vscode.WebviewViewProvider {
   }
 
   async revokeToken(token: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/api/auth/ide/revoke`, {
+    const response = await fetch(`${API_BASE}/api/ide-auth/revoke`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` }
     });

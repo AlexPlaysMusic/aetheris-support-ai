@@ -10,7 +10,7 @@ export default function IdeAuthForm({ state }: { state: string }) {
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const callbackUrl = `/api/auth/ide/complete?state=${encodeURIComponent(state)}`;
+  const callbackUrl = `/api/ide-auth/complete?state=${encodeURIComponent(state)}`;
 
   const sendCode = async () => {
     setBusy(true);

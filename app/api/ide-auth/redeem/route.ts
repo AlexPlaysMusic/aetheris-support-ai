@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: 'Request body must be valid JSON.' }, { status: 400 });
     }
-    console.error('[aetheris/ide-auth] sign-in ticket redemption failed:', error);
+    console.error('[aetheris/vscode-auth] sign-in ticket redemption failed:', error);
     return NextResponse.json(
       { error: 'Could not finish VS Code sign-in. Please try again.' },
       { status: 503 }
