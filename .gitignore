@@ -6,6 +6,9 @@
 /release
 /release-installer
 /dist
+/vscode-extension/node_modules
+/vscode-extension/dist
+/vscode-extension/*.vsix
 
 # env
 /.env

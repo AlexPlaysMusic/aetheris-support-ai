@@ -41,6 +41,23 @@ assignment is a manual deployment step and is not performed by this repository.
 
 Both endpoints require `Authorization: Bearer <Aetheris API key>`.
 
+## VS Code extension
+
+The `vscode-extension` directory contains the Aetheris AI VS Code extension.
+It signs users in through the existing website, stores a revocable 30-day
+access token in VS Code SecretStorage, and uses the website's `/api/chat`
+endpoint for chat and selected-code assistance. Prompts are processed by
+Gemini temporarily, as disclosed in the extension and the privacy policy.
+The Marketplace account owner must publish the generated VSIX; publishing is
+not automated by this repository.
+
+From the repository root, run `npm install --prefix vscode-extension`,
+`npm run vscode:typecheck`, `npm run vscode:compile`, and
+`npm run vscode:package`. Install the resulting
+`vscode-extension/aetheris-ai-0.1.0.vsix` in VS Code using **Extensions:
+Install from VSIX...**. The first Marketplace release requires a verified
+publisher account and a Marketplace publishing token.
+
 ### List available models
 
 ```http

@@ -1,0 +1,11 @@
+Copyright (c) 2026 Aetheris. All rights reserved.
+
+You may install and use this extension from an official Aetheris or Microsoft
+Visual Studio Marketplace distribution.
+
+The extension source code and package are not open source. No permission is
+granted to copy, modify, publish, sublicense, or redistribute the source code
+or extension package.
+
+This notice does not limit rights that applicable law does not allow to be
+limited.

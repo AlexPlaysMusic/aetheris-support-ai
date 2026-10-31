@@ -85,7 +85,8 @@ export default function PrivacyPage() {
         <Section title="Messages and files">
           <p>
             While Aetheris inference is being set up, chat prompts and supported
-            attachments are sent through our application services to Google
+            attachments, including code you choose to share from the VS Code
+            extension, are sent through our application services to Google
             Gemini to generate replies. Google processes that data under its{' '}
             <a
               href="https://policies.google.com/privacy"

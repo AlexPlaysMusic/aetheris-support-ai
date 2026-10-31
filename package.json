@@ -11,6 +11,9 @@
     "start": "next start",
     "desktop": "electron .",
     "desktop:installer": "electron-builder --projectDir electron --win nsis",
+    "vscode:typecheck": "npm --prefix vscode-extension run typecheck",
+    "vscode:compile": "npm --prefix vscode-extension run compile",
+    "vscode:package": "npm --prefix vscode-extension run package",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

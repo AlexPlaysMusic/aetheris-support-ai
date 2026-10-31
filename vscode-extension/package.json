@@ -1,0 +1,135 @@
+{
+  "name": "aetheris-ai",
+  "displayName": "Aetheris AI",
+  "description": "Chat with Aetheris AI and get code help without leaving Visual Studio Code.",
+  "version": "0.1.0",
+  "publisher": "aetheris",
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AlexPlaysMusic/aetheris-support-ai.git",
+    "directory": "vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "aetheris",
+    "chat",
+    "code assistant",
+    "explain code",
+    "generate code"
+  ],
+  "icon": "resources/aetheris.png",
+  "activationEvents": [
+    "onView:aetheris.chatView",
+    "onUri",
+    "onCommand:aetheris.signIn",
+    "onCommand:aetheris.signOut",
+    "onCommand:aetheris.explainSelection",
+    "onCommand:aetheris.fixSelection",
+    "onCommand:aetheris.generateCode",
+    "onCommand:aetheris.applyLastResponse",
+    "onCommand:aetheris.newChat"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aetheris",
+          "title": "Aetheris",
+          "icon": "resources/aetheris.svg"
+        }
+      ]
+    },
+    "views": {
+      "aetheris": [
+        {
+          "id": "aetheris.chatView",
+          "name": "Aetheris Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aetheris.signIn",
+        "title": "Aetheris: Sign In"
+      },
+      {
+        "command": "aetheris.signOut",
+        "title": "Aetheris: Sign Out"
+      },
+      {
+        "command": "aetheris.explainSelection",
+        "title": "Aetheris: Explain Selected Code"
+      },
+      {
+        "command": "aetheris.fixSelection",
+        "title": "Aetheris: Suggest a Fix for Selected Code"
+      },
+      {
+        "command": "aetheris.generateCode",
+        "title": "Aetheris: Generate Code"
+      },
+      {
+        "command": "aetheris.applyLastResponse",
+        "title": "Aetheris: Apply Last Code Suggestion"
+      },
+      {
+        "command": "aetheris.newChat",
+        "title": "Aetheris: New Chat"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "aetheris.explainSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@1"
+        },
+        {
+          "command": "aetheris.fixSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "aetheris.newChat",
+          "when": "view == aetheris.chatView",
+          "group": "navigation"
+        },
+        {
+          "command": "aetheris.signIn",
+          "when": "view == aetheris.chatView && !aetheris.signedIn",
+          "group": "navigation"
+        },
+        {
+          "command": "aetheris.signOut",
+          "when": "view == aetheris.chatView && aetheris.signedIn",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "watch": "npm run compile -- --watch",
+    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.13",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.2",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3"
+  }
+}

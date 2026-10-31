@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth';
 import { google } from '@ai-sdk/google';
 import { streamText } from 'ai';
 import { authOptions } from '@/lib/auth';
+import { authenticateIdeAccessToken } from '@/lib/ide-auth';
 import { instructionsLimit, messageCost } from '@/lib/credits';
 import {
   strictIdentityFor,
@@ -110,8 +111,24 @@ export async function POST(req: Request) {
   // Strict credit identity: verified session id when signed in, else IP.
   // (The body userId is ignored for metering — clients can lie about it.)
   const session = await getServerSession(authOptions).catch(() => null);
+  let ideUser = null;
+  const authorization = req.headers.get('authorization');
+  if (authorization !== null) {
+    try {
+      ideUser = await authenticateIdeAccessToken(authorization);
+    } catch (error) {
+      console.error('[aetheris/chat] VS Code session verification unavailable:', error);
+      return Response.json(
+        { error: 'VS Code sign-in is temporarily unavailable.' },
+        { status: 503 }
+      );
+    }
+    if (!ideUser) {
+      return Response.json({ error: 'VS Code sign-in is invalid or expired.' }, { status: 401 });
+    }
+  }
   const sessionUserId =
-    session?.user?.id || session?.user?.email || null;
+    session?.user?.id || session?.user?.email || ideUser?.id || null;
   let identity = strictIdentityFor(sessionUserId, clientIp(req));
   const cookieValue = getCookieValue(req.headers.get('cookie'), PLAN_COOKIE_NAME);
   let planHeader: string | null = null;
@@ -133,7 +150,7 @@ export async function POST(req: Request) {
     const resolved = await resolveTier(
       sessionUserId,
       cookieValue,
-      session?.user?.email ?? null
+      session?.user?.email ?? ideUser?.email ?? null
     );
     const tier = resolved.tier;
     identity = strictIdentityFor(sessionUserId, clientIp(req), tier);
