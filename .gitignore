@@ -8,8 +8,10 @@
 /dist
 
 # env
+/.env
 .env*.local
 .env.local
+deploy/inference/.env
 
 # misc
 .DS_Store

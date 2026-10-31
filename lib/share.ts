@@ -60,6 +60,7 @@ export function buildShareLink(
   t: { title: string; messages: Message[] },
   origin: string
 ): string | null {
+  const baseOrigin = typeof origin === 'string' ? origin.replace(/\/+$/, '') : '';
   const slim: {
     v: number;
     title: string;
@@ -100,7 +101,8 @@ export function buildShareLink(
   let code = encode(false);
   if (code.length > SHARE_SIZE_LIMIT) code = encode(true);
   if (code.length > SHARE_SIZE_LIMIT) return null;
-  return `${origin}/share#${code}`;
+  const pathname = baseOrigin === '' ? '/share' : `${baseOrigin}/share`;
+  return `${pathname}#${code}`;
 }
 
 /** Decode a share link hash back into a chat. Null = invalid/oversized. */

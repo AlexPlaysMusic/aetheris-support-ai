@@ -1,0 +1,167 @@
+# Aetheris AI API and self-hosted inference
+
+## Status and architecture
+
+The developer API and key-management layer are Aetheris-owned. The website's
+chatbot temporarily uses Gemini so visitors can chat while Aetheris has no
+deployed model server. This is a third-party inference service, not an Aetheris
+foundation model. The `/api/v1` developer API remains connected only to the
+separately configured Aetheris inference host.
+
+The API and website run as Next.js routes on Vercel. Upstash Redis stores
+SHA-256 hashes and metadata for developer API keys, rate-limit counters, usage,
+and the application's existing credit ledger. Aetheris inference still runs
+separately on a GPU host under Aetheris's control; the repository currently has
+no deployed GPU inference host or selected model weights. No foundation-model
+ownership or training is claimed.
+
+```text
+Website / public API (Vercel)
+  ├─ /api/chat             website chat (temporarily Gemini)
+  ├─ /api/v1/*             authenticated developer API (Aetheris inference)
+  ├─ /api/keys             signed-in key creation, usage, and revocation
+  └─ Upstash Redis         key hashes, rate limits, usage, credits
+             │ HTTPS + private inference bearer key
+             ▼
+Self-hosted vLLM server on an NVIDIA GPU host
+  └─ OpenAI-compatible /v1/models and /v1/chat/completions
+```
+
+## API endpoints
+
+The API is available at:
+
+- `https://www.aetherisai.me/api/v1/models`
+- `https://www.aetherisai.me/api/v1/chat/completions`
+
+For the shorter public host, assign `api.aetherisai.me` to the same Vercel
+project in Vercel's domain settings and configure its DNS. The middleware maps
+`https://api.aetherisai.me/v1/...` to the same API routes. This domain/DNS
+assignment is a manual deployment step and is not performed by this repository.
+
+Both endpoints require `Authorization: Bearer <Aetheris API key>`.
+
+### List available models
+
+```http
+GET /v1/models
+Authorization: Bearer aeth_sk_live_...
+```
+
+Response uses the OpenAI-compatible `{"object":"list","data":[...]}` shape.
+Only aliases that are configured and currently returned by the inference
+server's `/v1/models` endpoint are listed.
+
+### Create a chat completion
+
+```http
+POST /v1/chat/completions
+Authorization: Bearer aeth_sk_live_...
+Content-Type: application/json
+```
+
+```json
+{
+  "model": "aetheris-basic",
+  "messages": [
+    { "role": "system", "content": "Answer clearly and briefly." },
+    { "role": "user", "content": "What is a fixed-window rate limit?" }
+  ],
+  "stream": true,
+  "temperature": 0.4,
+  "max_tokens": 512
+}
+```
+
+`stream` defaults to `true`; streamed responses use server-sent events. Set
+`stream` to `false` for a JSON chat-completion response. Supported roles are
+`system`, `user`, and `assistant`; message content must be text. The service
+validates request size and parameters, applies per-key rate limits, enforces
+configured model token caps, and tracks requests and tokens when supplied by
+the inference server.
+
+## API key management
+
+Sign into the Aetheris website and select **API keys** from the account menu,
+or open `/api-keys`. Create a labeled key there. Its plaintext is returned once
+and is never stored in Redis; Redis stores only its SHA-256 digest and metadata.
+Copy it directly to a secure server-side secret manager. The key prefix, label,
+creation time, request count, token totals, and last-used time remain visible
+in the dashboard. Revoke a key there to immediately invalidate it.
+
+Keys can also be managed through the authenticated same-origin routes:
+
+- `GET /api/keys` — list the signed-in account's keys and usage
+- `POST /api/keys` with `{"label":"..."}` — create a key, returning its
+  plaintext only in this response
+- `DELETE /api/keys` with `{"id":"<key-id>"}` — revoke a key
+
+Do not put developer keys in `NEXT_PUBLIC_*` variables, frontend source, or
+browser storage. Per-key request limits default to 60/minute and can be changed
+with the server-only `AETHERIS_API_RATE_LIMIT_PER_MINUTE` setting. Billing and
+plan-based public API quotas are not implemented yet.
+
+## Deploying inference
+
+The website's Vercel functions cannot load and operate a large model's GPU
+weights. Run the separate inference service on a Linux host with a supported
+NVIDIA GPU, NVIDIA Container Toolkit, Docker Compose, sufficient GPU VRAM for
+the model you select, and disk for its weights/cache. CPU-only inference is not
+configured or represented as a production option here.
+
+1. Select an open-weight model only after reviewing its license, safety
+   properties, hardware/VRAM requirements, and intended use. The project does
+   not choose or claim an operational model for you.
+2. Copy `deploy/inference/.env.example` to `deploy/inference/.env`. Set
+   `AETHERIS_UPSTREAM_MODEL` to the model repository/path and
+   `AETHERIS_UPSTREAM_MODEL_ID` to the exact ID returned by its vLLM
+   `/v1/models` endpoint. Set a long random `AETHERIS_INFERENCE_API_KEY`.
+3. Start the server from `deploy/inference` with
+   `docker compose up -d`. The Compose file binds vLLM to localhost. Put an
+   HTTPS reverse proxy in front of it for Vercel, keep authentication enabled,
+   and restrict network access where your host supports it. Do not expose an
+   unauthenticated vLLM port to the public internet.
+4. Configure Vercel server environment variables:
+   - `AETHERIS_INFERENCE_BASE_URL=https://<your-inference-host>/v1`
+   - `AETHERIS_INFERENCE_API_KEY` — the same secret used by vLLM
+   - `AETHERIS_INFERENCE_TIMEOUT_MS=55000`
+   - `AETHERIS_MODELS_JSON` — aliases mapped to IDs actually served, for
+     example:
+
+     ```json
+     [
+       {"id":"aetheris-basic","upstreamModel":"<exact-loaded-model-id>","label":"Aetheris Basic","maxTokens":2048,"supportsVision":false}
+     ]
+     ```
+
+     Configure `aetheris-asteroid` and `aetheris-pro` only if their separately
+     selected models are loaded and validated. Never put inference credentials
+     in a client-visible environment variable.
+5. Connect Upstash Redis to the Vercel project. Set
+   `AETHERIS_API_RATE_LIMIT_PER_MINUTE` as needed, then deploy the website.
+6. Verify `GET /api/chat` reports configured models and, with an API key,
+   `GET /api/v1/models` lists only models returned by the live inference
+   server. Send a test completion before announcing a model as available.
+
+Vercel's function duration and streaming limits depend on the project's plan;
+the API routes request a maximum of 60 seconds. Select a model and generation
+limits that fit that ceiling or move the API gateway itself to a host with a
+longer supported request duration. The inference server's timeout is
+configurable, but a Vercel function can still terminate earlier.
+
+## Feature availability
+
+- Website chat temporarily calls Gemini using the server-only
+  `GOOGLE_GENERATIVE_AI_API_KEY`; configure it in Vercel's server environment.
+  Keep the key out of client-side variables and browser storage.
+  The current chat aliases map to `gemini-3.1-flash-lite`,
+  `gemini-3.5-flash-lite`, and `gemini-3.8-flash`, respectively.
+- The public developer API, support replies, and prompt classification use the
+  configured Aetheris inference host. There is no demo fallback.
+- Image generation is explicitly unavailable until a separate Aetheris image
+  inference model is deployed; it does not fall back to Gemini.
+- This temporary chat connection should be replaced when a real Aetheris model
+  is deployed and verified.
+- API custom-domain DNS, Vercel environment configuration, GPU provisioning,
+  model selection/download, and production deployment remain operational setup
+  steps. Nothing here deploys or overwrites production.

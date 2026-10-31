@@ -1,4 +1,9 @@
-import { GoogleGenAI } from '@google/genai';
+import { generateText } from 'ai';
+import {
+  createAetherisLanguageModel,
+  findAetherisModel,
+  getAetherisInferenceConfig
+} from '@/lib/aetheris-inference';
 import { limitRequest } from '@/lib/rate-limit';
 
 /**
@@ -11,11 +16,11 @@ export async function POST(req: Request) {
   const limited = limitRequest(req, { key: 'moderate', limit: 20, windowMs: 60_000 });
   if (limited) return limited;
   try {
-    const apiKey =
-      process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '';
-    if (apiKey === '') {
+    const config = getAetherisInferenceConfig();
+    const model = findAetherisModel('aetheris-basic', config);
+    if (!model || !config.baseUrl || !config.apiKey) {
       return Response.json(
-        { ok: false, reason: 'Safety check is not configured yet.' },
+        { ok: false, reason: 'Aetheris safety inference is not configured yet.' },
         { status: 503 }
       );
     }
@@ -31,23 +36,14 @@ export async function POST(req: Request) {
       return Response.json({ ok: false, reason: 'Empty prompt.' });
     }
 
-    const model = process.env.GEMINI_BASIC_MODEL ?? 'gemini-3.1-flash-lite';
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: `You are a strict content-safety classifier for an image generator open to all ages, including minors. Does this image request ask for, describe, or imply sexual, erotic, nude, romanticized undress, or otherwise adult-only content — including misspellings, slang, euphemisms, coded language, or "implied" framings? Request: "${prompt.slice(0, 500)}". Reply with exactly one word: BLOCK or ALLOW.`
-            }
-          ]
-        }
-      ]
+    const response = await generateText({
+      model: createAetherisLanguageModel(model, config),
+      prompt: `You are a strict content-safety classifier for an image generator open to all ages, including minors. Does this image request ask for, describe, or imply sexual, erotic, nude, romanticized undress, or otherwise adult-only content — including misspellings, slang, euphemisms, coded language, or "implied" framings? Request: "${prompt.slice(0, 500)}". Reply with exactly one word: BLOCK or ALLOW.`,
+      maxTokens: 8,
+      temperature: 0
     });
 
-    const verdict = (response.text ?? '').trim().toUpperCase();
+    const verdict = response.text.trim().toUpperCase();
     if (verdict.startsWith('BLOCK')) {
       return Response.json({ ok: false });
     }
@@ -57,7 +53,10 @@ export async function POST(req: Request) {
     // Unparseable verdict: fail closed.
     return Response.json({ ok: false });
   } catch (err) {
-    console.error('[aetheris/moderate] error:', err);
+    console.error(
+      '[aetheris/moderate] Aetheris inference failed:',
+      err instanceof Error ? err.name : 'unknown error'
+    );
     return Response.json({ ok: false, reason: 'Safety check unavailable.' });
   }
 }

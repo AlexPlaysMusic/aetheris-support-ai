@@ -75,6 +75,11 @@ describe('share codec round-trip', () => {
     expect(buildShareLink(thread, 'https://example.com')).toBeNull();
   });
 
+  it('avoids double slashes when the origin already ends with a slash', () => {
+    const thread = { title: 'Trip', messages: [asstMsg('hello')] };
+    expect(buildShareLink(thread, 'https://example.com/')).toMatch(/^https:\/\/example\.com\/share#/);
+  });
+
   it('caps lengths and normalizes roles', () => {
     const thread = {
       title: 't'.repeat(500),

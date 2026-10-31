@@ -12,6 +12,7 @@ import {
   refundCredits,
   remainingCredits,
   spendCredits,
+  syncCreditBalance,
   todayKey
 } from '../credits';
 
@@ -78,6 +79,12 @@ describe('spendCredits', () => {
     expect(remainingCredits(id)).toBe(CREDIT_DAILY_GUEST);
   });
 
+  it('ignores invalid negative spends and refunds', () => {
+    const id = creditIdentity(null);
+    expect(spendCredits(id, -3)).toBe(CREDIT_DAILY_GUEST);
+    expect(refundCredits(id, -2)).toBe(CREDIT_DAILY_GUEST);
+  });
+
   it('resets on a new day', () => {
     const id = creditIdentity(null);
     storage.setItem(id.key, JSON.stringify({ day: '2000-01-01', used: 999 }));
@@ -91,6 +98,24 @@ describe('refundCredits', () => {
     spendCredits(id, 5);
     expect(refundCredits(id, 2)).toBe(CREDIT_DAILY_GUEST - 3);
     expect(refundCredits(id, 100)).toBe(CREDIT_DAILY_GUEST);
+  });
+});
+
+describe('syncCreditBalance', () => {
+  it('updates the local cache from the authoritative server balance', () => {
+    const identity = creditIdentity('user-123');
+    spendCredits(identity, 8);
+
+    expect(syncCreditBalance(identity, 63)).toBe(63);
+    expect(remainingCredits(identity)).toBe(63);
+  });
+
+  it('clamps invalid/out-of-range balances to the allowance', () => {
+    const identity = creditIdentity(null);
+
+    expect(syncCreditBalance(identity, -5)).toBe(0);
+    expect(syncCreditBalance(identity, CREDIT_DAILY_GUEST + 20)).toBe(CREDIT_DAILY_GUEST);
+    expect(syncCreditBalance(identity, Number.NaN)).toBe(CREDIT_DAILY_GUEST);
   });
 });
 

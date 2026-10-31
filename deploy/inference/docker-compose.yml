@@ -1,0 +1,31 @@
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.11.0
+    command:
+      - --model
+      - ${AETHERIS_UPSTREAM_MODEL:?Set AETHERIS_UPSTREAM_MODEL to a model you have selected}
+      - --served-model-name
+      - ${AETHERIS_UPSTREAM_MODEL_ID:?Set the exact model id used in AETHERIS_MODELS_JSON}
+      - --api-key
+      - ${AETHERIS_INFERENCE_API_KEY:?Set a long random inference API key}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - model-cache:/root/.cache/huggingface
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  model-cache:

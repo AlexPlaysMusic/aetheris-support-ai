@@ -55,6 +55,28 @@ describe('clientIp', () => {
   it('returns null when absent', () => {
     expect(clientIp(new Request('http://x/'))).toBeNull();
   });
+
+  it('accepts common proxy headers and strips port values', () => {
+    expect(
+      clientIp(
+        new Request('http://x/', {
+          headers: { 'x-real-ip': '[2001:db8::1]:443' }
+        })
+      )
+    ).toBe('2001:db8::1');
+    expect(
+      clientIp(
+        new Request('http://x/', {
+          headers: { 'cf-connecting-ip': '203.0.113.9, 10.0.0.1' }
+        })
+      )
+    ).toBe('203.0.113.9');
+  });
+
+  it('rejects invalid limit values instead of allowing unbounded access', () => {
+    expect(checkRateLimit('bad', 0, 60_000, 1000).ok).toBe(false);
+    expect(checkRateLimit('bad', -1, 60_000, 1000).remaining).toBe(0);
+  });
 });
 
 describe('limitRequest', () => {

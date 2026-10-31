@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import { generateText } from 'ai';
 import { Resend } from 'resend';
+import {
+  createAetherisLanguageModel,
+  findAetherisModel,
+  getAetherisInferenceConfig
+} from '@/lib/aetheris-inference';
 import { limitRequest } from '@/lib/rate-limit';
 
 const SUPPORT_FROM = 'Aetheris Support <support@aetherisai.me>';
-const SUPPORT_MODELS = [
-  process.env.SUPPORT_MODEL ?? 'gemini-3.8-flash',
-  'gemini-3.1-flash-lite',
-  'gemini-3.5-flash'
-];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -19,57 +19,21 @@ function isCapacityError(err: unknown): boolean {
   );
 }
 
-/** Draft a support reply, falling over to backup models on capacity errors. */
-async function draftReply(apiKey: string, message: string): Promise<string> {
-  let lastErr: unknown = null;
-  for (const model of [...new Set(SUPPORT_MODELS)]) {
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      const aiResponse = await ai.models.generateContent({
-        model,
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `You are the official AI support assistant for Aetheris, a high-performance AI chat web application.
-              Write a polite, helpful, and concise response to this user support message: "${message.slice(0, 2000)}".
-              Keep the reply strictly professional and never sexual or explicit.
-              Sign off from "Aetheris AI Support".`
-              }
-            ]
-          }
-        ]
-      });
-      const text = aiResponse.text?.trim() ?? '';
-      if (text !== '') return text;
-      lastErr = new Error('Empty reply from the support AI.');
-    } catch (err) {
-      lastErr = err;
-      // Only capacity blips are worth retrying on the next model.
-      if (!isCapacityError(err)) throw err;
-    }
-  }
-  throw lastErr instanceof Error ? lastErr : new Error('Support AI unavailable.');
-}
-
 /**
- * AI support inbox: Gemini drafts a helpful reply to the user's message,
+ * AI support inbox: Aetheris inference drafts a helpful reply to the user's message,
  * Resend delivers it from support@aetherisai.me.
  *
- * Required env: RESEND_API_KEY (plus a verified sending domain in Resend),
- * and GEMINI_API_KEY (falls back to the existing GOOGLE_GENERATIVE_AI_API_KEY
- * so the same key doesn't have to be configured twice).
+ * Required env: RESEND_API_KEY plus a configured Aetheris inference backend.
  */
 export async function POST(req: Request) {
   const limited = limitRequest(req, { key: 'support', limit: 5, windowMs: 60_000 });
   if (limited) return limited;
   try {
-    const apiKey =
-      process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '';
-    if (apiKey === '') {
+    const config = getAetherisInferenceConfig();
+    const model = findAetherisModel('aetheris-basic', config);
+    if (!model || !config.baseUrl || !config.apiKey) {
       return NextResponse.json(
-        { error: 'AI support is not configured yet.' },
+        { error: 'Aetheris AI support inference is not configured yet.' },
         { status: 503 }
       );
     }
@@ -97,10 +61,21 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. Have Gemini generate a helpful support response.
-    const replyText = await draftReply(apiKey, message);
+    const generated = await generateText({
+      model: createAetherisLanguageModel(model, config),
+      prompt: `You are the official AI support assistant for Aetheris. Write a polite, helpful, and concise response to this support message. Keep the reply strictly professional and never sexual or explicit. Sign off from "Aetheris AI Support".\n\nSupport message:\n${message.slice(0, 2000)}`,
+      maxTokens: 700,
+      temperature: 0.4
+    });
+    const replyText = generated.text.trim();
+    if (replyText === '') {
+      return NextResponse.json(
+        { error: 'Aetheris AI returned an empty support response.' },
+        { status: 502 }
+      );
+    }
 
-    // 2. Send the AI-generated response via Resend from our domain.
+    // Send the AI-generated response via Resend from our domain.
     const resend = new Resend(process.env.RESEND_API_KEY);
     const { error: sendError } = await resend.emails.send({
       from: SUPPORT_FROM,
@@ -134,7 +109,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true, reply: replyText });
   } catch (err) {
-    console.error('[aetheris/support] error:', err);
+    console.error(
+      '[aetheris/support] inference or delivery failed:',
+      err instanceof Error ? err.name : 'unknown error'
+    );
     if (isCapacityError(err)) {
       return NextResponse.json(
         {
@@ -145,8 +123,8 @@ export async function POST(req: Request) {
       );
     }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Support request failed.' },
-      { status: 500 }
+      { error: 'Could not complete the support request. Please try again later.' },
+      { status: 503 }
     );
   }
 }

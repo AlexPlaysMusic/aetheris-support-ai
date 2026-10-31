@@ -107,18 +107,32 @@ export function remainingCredits(identity: CreditIdentity): number {
   return Math.max(0, identity.daily - loadUsed(identity.key));
 }
 
+/** Replace the local cache with a balance confirmed by the server ledger. */
+export function syncCreditBalance(
+  identity: CreditIdentity,
+  remaining: number
+): number {
+  const balance = Number.isFinite(remaining)
+    ? Math.min(identity.daily, Math.max(0, Math.floor(remaining)))
+    : remainingCredits(identity);
+  saveUsed(identity.key, identity.daily - balance);
+  return balance;
+}
+
 export function messageCost(opts: {
   tier: PlanTier;
   images: number;
   files: number;
 }): number {
+  const safeImages = Number.isFinite(opts.images) ? Math.max(0, Math.floor(opts.images)) : 0;
+  const safeFiles = Number.isFinite(opts.files) ? Math.max(0, Math.floor(opts.files)) : 0;
   const base =
     opts.tier === 'pro'
       ? CREDIT_COST_PRO_MESSAGE
       : opts.tier === 'asteroid'
         ? CREDIT_COST_ASTEROID_MESSAGE
         : CREDIT_COST_TEXT;
-  return base + opts.images * CREDIT_COST_IMAGE + opts.files * CREDIT_COST_FILE;
+  return base + safeImages * CREDIT_COST_IMAGE + safeFiles * CREDIT_COST_FILE;
 }
 
 /**
@@ -129,6 +143,7 @@ export function spendCredits(
   identity: CreditIdentity,
   amount: number
 ): number | null {
+  if (!Number.isFinite(amount) || amount <= 0) return remainingCredits(identity);
   const remaining = remainingCredits(identity);
   if (remaining < amount) return null;
   const next = remaining - amount;
@@ -141,6 +156,7 @@ export function refundCredits(
   identity: CreditIdentity,
   amount: number
 ): number {
+  if (!Number.isFinite(amount) || amount <= 0) return remainingCredits(identity);
   const used = Math.max(0, loadUsed(identity.key) - amount);
   saveUsed(identity.key, used);
   return Math.max(0, identity.daily - used);

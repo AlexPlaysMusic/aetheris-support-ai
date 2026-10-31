@@ -1,7 +1,10 @@
 import { Redis } from '@upstash/redis';
 import {
+  CREDIT_DAILY_ASTEROID,
   CREDIT_DAILY_GUEST,
-  CREDIT_DAILY_USER
+  CREDIT_DAILY_PRO,
+  CREDIT_DAILY_USER,
+  type PlanTier
 } from './credits';
 
 /**
@@ -50,10 +53,17 @@ export type StrictIdentity =
 
 export function strictIdentityFor(
   userId: string | null,
-  ip: string | null
+  ip: string | null,
+  tier: PlanTier = 'basic'
 ): StrictIdentity {
   if (userId) {
-    return { kind: 'user', id: userId, daily: CREDIT_DAILY_USER };
+    const daily =
+      tier === 'pro'
+        ? CREDIT_DAILY_PRO
+        : tier === 'asteroid'
+          ? CREDIT_DAILY_ASTEROID
+          : CREDIT_DAILY_USER;
+    return { kind: 'user', id: userId, daily };
   }
   return { kind: 'guest', id: ip && ip !== '' ? ip : 'unknown', daily: CREDIT_DAILY_GUEST };
 }

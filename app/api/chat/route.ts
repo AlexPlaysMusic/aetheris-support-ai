@@ -1,14 +1,7 @@
 import { getServerSession } from 'next-auth';
 import { google } from '@ai-sdk/google';
-import { openai } from '@ai-sdk/openai';
 import { streamText } from 'ai';
 import { authOptions } from '@/lib/auth';
-import {
-  createCustomChatModel,
-  getCustomConfig,
-  resolveCustomModelId
-} from '@/lib/custom-llm';
-import { createDemoChatModel } from '@/lib/demo-llm';
 import { instructionsLimit, messageCost } from '@/lib/credits';
 import {
   strictIdentityFor,
@@ -22,9 +15,9 @@ import {
   serializePlanCookie,
   clearPlanCookieHeader
 } from '@/lib/plan-cookie';
-import { limitRequest } from '@/lib/rate-limit';
+import { clientIp, limitRequest } from '@/lib/rate-limit';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const SYSTEM_PROMPT = `You are Aetheris, a helpful, warm, direct conversational AI.
 
@@ -39,32 +32,12 @@ Rules:
 
 type ModelSelect = 'aetheris-basic' | 'aetheris-asteroid' | 'aetheris-pro';
 
-function resolveOpenAiModel(select: unknown): 'gpt-4o-mini' | 'gpt-4o' {
-  if (select === 'aetheris-pro') return 'gpt-4o';
-  return 'gpt-4o-mini';
-}
-
-function resolveDemoModel(select: unknown): string {
-  if (select === 'aetheris-pro') return 'aetheris-pro-demo';
-  if (select === 'aetheris-asteroid') return 'aetheris-asteroid-demo';
-  return 'aetheris-basic-demo';
-}
-
 function resolveGeminiModel(select: unknown): string {
-  if (select === 'aetheris-pro') {
-    return (process.env.GEMINI_PRO_MODEL ?? 'gemini-3.8-flash').trim() || 'gemini-3.8-flash';
-  }
-  if (select === 'aetheris-asteroid') {
-    return (process.env.GEMINI_ASTEROID_MODEL ?? 'gemini-1.5-flash').trim() || 'gemini-1.5-flash';
-  }
-  return (process.env.GEMINI_BASIC_MODEL ?? 'gemini-3.1-flash-lite').trim() || 'gemini-3.1-flash-lite';
+  if (select === 'aetheris-pro') return 'gemini-3.8-flash';
+  if (select === 'aetheris-asteroid') return 'gemini-3.5-flash-lite';
+  return 'gemini-3.1-flash-lite';
 }
 
-/**
- * Locked-down content filters: sexually explicit and harassing content is
- * blocked at medium severity and above (stricter than the API default).
- * Everything else uses the provider default.
- */
 const GEMINI_SAFETY_SETTINGS = [
   {
     category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT' as const,
@@ -97,8 +70,7 @@ function imageUrlsFrom(value: unknown): string[] {
 
 /**
  * Fold the last user message's experimental_attachments into standard
- * model content parts ({ text } + { image }) so every provider —
- * Gemini, OpenAI, custom — receives the actual photos.
+ * model content parts ({ text } + { image }) for configured multimodal models.
  */
 function withAttachments(messages: any): any {
   if (!Array.isArray(messages) || messages.length === 0) return messages;
@@ -119,48 +91,17 @@ function withAttachments(messages: any): any {
   ];
 }
 
-/** Health check: GET /api/chat shows which provider is wired (no secrets). */
+/** Health check reports Gemini chat readiness without revealing credentials. */
 export async function GET() {
-  const provider = (process.env.LLM_PROVIDER ?? 'demo').toLowerCase();
-  if (provider === 'openai') {
-    return Response.json({
-      provider: 'openai',
-      basicModel: 'gpt-4o-mini',
-      proModel: 'gpt-4o',
-      hasKey: Boolean(process.env.OPENAI_API_KEY)
-    });
-  }
-  if (provider === 'demo') {
-    return Response.json({
-      provider: 'demo',
-      basicModel: 'aetheris-basic-demo',
-      proModel: 'aetheris-pro-demo',
-      note: 'Built-in demo stream. Set LLM_PROVIDER=gemini + GOOGLE_GENERATIVE_AI_API_KEY for real AI.'
-    });
-  }
-  if (provider === 'gemini') {
-    return Response.json({
-      provider: 'gemini',
-      basicModel: (process.env.GEMINI_BASIC_MODEL ?? 'gemini-3.1-flash-lite').trim(),
-      asteroidModel: (process.env.GEMINI_ASTEROID_MODEL ?? 'gemini-1.5-flash').trim(),
-      proModel: (process.env.GEMINI_PRO_MODEL ?? 'gemini-3.8-flash').trim(),
-      hasKey: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY)
-    });
-  }
-  const cfg = getCustomConfig();
   return Response.json({
-    provider: 'custom',
-    urlConfigured: Boolean(cfg.baseUrl),
-    basicModel: cfg.basicModel,
-    proModel: cfg.proModel,
-    hasKey: Boolean(cfg.apiKey)
+    provider: 'gemini',
+    configured: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY),
+    models: [
+    { id: 'aetheris-basic', upstream: 'gemini-3.1-flash-lite' },
+    { id: 'aetheris-asteroid', upstream: 'gemini-3.5-flash-lite' },
+    { id: 'aetheris-pro', upstream: 'gemini-3.8-flash' }
+    ]
   });
-}
-
-function clientIp(req: Request): string | null {
-  const forwarded = req.headers.get('x-forwarded-for');
-  const ip = forwarded?.split(',')[0]?.trim();
-  return ip && ip !== '' ? ip : null;
 }
 
 export async function POST(req: Request) {
@@ -171,7 +112,7 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions).catch(() => null);
   const sessionUserId =
     session?.user?.id || session?.user?.email || null;
-  const identity = strictIdentityFor(sessionUserId, clientIp(req));
+  let identity = strictIdentityFor(sessionUserId, clientIp(req));
   const cookieValue = getCookieValue(req.headers.get('cookie'), PLAN_COOKIE_NAME);
   let planHeader: string | null = null;
   let spent = 0;
@@ -195,6 +136,7 @@ export async function POST(req: Request) {
       session?.user?.email ?? null
     );
     const tier = resolved.tier;
+    identity = strictIdentityFor(sessionUserId, clientIp(req), tier);
     planHeader = resolved.planCookie.set
       ? serializePlanCookie(resolved.planCookie.set)
       : resolved.planCookie.clear
@@ -215,6 +157,17 @@ export async function POST(req: Request) {
         { status: 403, ...planInit }
       );
     }
+
+    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+      return Response.json(
+        { error: 'Gemini chat is not configured on the server.' },
+        { status: 503, ...planInit }
+      );
+    }
+    const modelId: ModelSelect =
+      modelSelect === 'aetheris-pro' || modelSelect === 'aetheris-asteroid'
+        ? modelSelect
+        : 'aetheris-basic';
 
     // Strict server-side metering (no-op unless Redis is configured).
     // Text files + PDFs arrive inlined in the message text, so the server
@@ -254,89 +207,31 @@ export async function POST(req: Request) {
         ? `${SYSTEM_PROMPT}\n\nUser preferences (always follow these):\n${systemExtra}`
         : SYSTEM_PROMPT;
 
-    const provider = (process.env.LLM_PROVIDER ?? 'demo').toLowerCase();
     const modelMessages = withAttachments(messages);
-
-    // ---- Built-in demo stream (default: works with zero config) ----
-    if (provider === 'demo') {
-      const result = streamText({
-        model: createDemoChatModel(resolveDemoModel(modelSelect)),
-        system,
-        messages: modelMessages,
-        temperature,
-      });
-      return result.toDataStreamResponse(planInit);
-    }
-
-    // ---- Google Gemini (LLM_PROVIDER=gemini, free tier, no credit card) ----
-    if (provider === 'gemini') {
-      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-        return Response.json(
-          {
-            error:
-              'Missing GOOGLE_GENERATIVE_AI_API_KEY. Paste your free key from Google AI Studio into .env.local and restart the dev server.'
-          },
-          { status: 500 }
-        );
-      }
-      const result = streamText({
-        model: google(resolveGeminiModel(modelSelect), {
-          safetySettings: GEMINI_SAFETY_SETTINGS
-        }),
-        system,
-        messages: modelMessages,
-        temperature,
-      });
-      return result.toDataStreamResponse(planInit);
-    }
-
-    // ---- OpenAI fallback (LLM_PROVIDER=openai) ----
-    if (provider === 'openai') {
-      if (!process.env.OPENAI_API_KEY) {
-        return Response.json(
-          {
-            error:
-              'Missing OPENAI_API_KEY. Add it to .env.local and restart the dev server.'
-          },
-          { status: 500 }
-        );
-      }
-      const result = streamText({
-        model: openai(resolveOpenAiModel(modelSelect)),
-        system,
-        messages: modelMessages,
-        temperature,
-      });
-      return result.toDataStreamResponse(planInit);
-    }
-
-    // ---- Custom REST LLM (LLM_PROVIDER=custom) ----
-    const cfg = getCustomConfig();
-    if (!cfg.baseUrl) {
-      return Response.json(
-        {
-          error:
-            'Missing CUSTOM_API_URL. Set it in .env.local to your LLM endpoint (or set LLM_PROVIDER=demo for the built-in stream).'
-        },
-        { status: 500 }
-      );
-    }
-
-    const target = resolveCustomModelId(modelSelect, cfg);
+    const timeout = AbortSignal.timeout(55_000);
+    const abortSignal =
+      req.signal && AbortSignal.any
+        ? AbortSignal.any([req.signal, timeout])
+        : timeout;
     const result = streamText({
-      model: createCustomChatModel(target, cfg),
-      system: SYSTEM_PROMPT,
+      model: google(resolveGeminiModel(modelId), {
+        safetySettings: GEMINI_SAFETY_SETTINGS
+      }),
+      system,
       messages: modelMessages,
-      temperature: 0.7
+      abortSignal,
+      maxTokens: modelId === 'aetheris-basic' ? 2048 : 4096,
+      temperature
     });
     return result.toDataStreamResponse(planInit);
   } catch (err) {
     // The response never streamed: refund the strict spend (if any).
     if (spent > 0) await strictRefund(identity, spent);
-    console.error('[aetheris/chat] error:', err);
-    const message =
-      err instanceof Error ? err.message : 'Failed to generate a response.';
-    if (/429|quota|RESOURCE_EXHAUSTED|rate.?limit|overload/i.test(message)) {
+    console.error('[aetheris/chat] Gemini request failed:', {
+      errorType: err instanceof Error ? err.name : 'UnknownError'
+    });
+    const message = err instanceof Error ? err.message : '';
+    if (/429|rate.?limit|overload|capacity/i.test(message)) {
       return Response.json(
         {
           error: 'RATE_LIMITED',
@@ -346,8 +241,8 @@ export async function POST(req: Request) {
       );
     }
     return Response.json(
-      { error: `LLM request failed: ${message}` },
-      { status: 500 }
+      { error: 'Aetheris AI could not complete the request. Please try again later.' },
+      { status: 503 }
     );
   }
 }

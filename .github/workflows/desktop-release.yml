@@ -1,0 +1,63 @@
+name: Build Windows desktop release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to build from the selected branch
+        required: true
+        default: v1.0.0
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npm run desktop:installer
+
+      - name: Prepare stable download name
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw electron/package.json | ConvertFrom-Json).version
+          $installer = "release-installer/Aetheris-AI-Setup-$version-x64.exe"
+          if (-not (Test-Path -LiteralPath $installer)) {
+            throw "Expected installer was not created: $installer"
+          }
+          Copy-Item -LiteralPath $installer -Destination "release-installer/Aetheris-AI-Setup-latest-x64.exe" -Force
+
+      - name: Publish installer assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw electron/package.json | ConvertFrom-Json).version
+          $installer = "release-installer/Aetheris-AI-Setup-$version-x64.exe"
+          $latest = "release-installer/Aetheris-AI-Setup-latest-x64.exe"
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_TAG --target $env:GITHUB_SHA --title "Aetheris AI $env:RELEASE_TAG" --generate-notes
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+          gh release upload $env:RELEASE_TAG $installer $latest --clobber

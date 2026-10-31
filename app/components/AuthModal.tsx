@@ -2,15 +2,23 @@
 
 import { useState } from 'react';
 import { signIn, useSession } from 'next-auth/react';
-import { ArrowLeft, LoaderCircle, Mail, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, ExternalLink, LoaderCircle, Mail, X } from 'lucide-react';
 
-export default function AuthModal({ onClose }: { onClose: () => void }) {
+export default function AuthModal({
+  onClose,
+  initialError = null
+}: {
+  onClose: () => void;
+  initialError?: string | null;
+}) {
   const { update } = useSession();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
+  const [desktopAuthUrl, setDesktopAuthUrl] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const sendCode = async () => {
     setBusy(true);
@@ -60,9 +68,22 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
   const continueWithGoogle = () => {
     const isDesktop = /electron\//i.test(navigator.userAgent);
     if (isDesktop) {
-      window.location.assign('/desktop-auth/start');
+      setDesktopAuthUrl(new URL('/desktop-auth/start', window.location.origin).toString());
+      setLinkCopied(false);
+      setError(null);
     } else {
       void signIn('google', { callbackUrl: '/' });
+    }
+  };
+
+  const copyDesktopAuthUrl = async () => {
+    if (!desktopAuthUrl) return;
+    try {
+      await navigator.clipboard.writeText(desktopAuthUrl);
+      setLinkCopied(true);
+    } catch (copyError) {
+      console.error('[aetheris/auth] could not copy desktop sign-in link:', copyError);
+      setError('Could not copy the link. Select and copy the address above instead.');
     }
   };
 
@@ -113,6 +134,41 @@ export default function AuthModal({ onClose }: { onClose: () => void }) {
           <span className="text-lg font-bold text-[#4285F4]" aria-hidden="true">G</span>
           Continue with Google
         </button>
+
+        {desktopAuthUrl && (
+          <div className="mt-3 space-y-2 rounded-xl border border-cyan-300/20 bg-cyan-300/5 p-3">
+            <p className="text-sm leading-5 text-slate-200">
+              Open this link in your browser to sign in. Aetheris will return you to the desktop app after Google approves access.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                aria-label="Desktop Google sign-in link"
+                readOnly
+                value={desktopAuthUrl}
+                onFocus={(event) => event.currentTarget.select()}
+                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-2 text-xs text-cyan-100 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void copyDesktopAuthUrl()}
+                aria-label={linkCopied ? 'Sign-in link copied' : 'Copy sign-in link'}
+                title={linkCopied ? 'Copied' : 'Copy link'}
+                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+              >
+                {linkCopied ? <Check size={14} /> : <Copy size={14} />}
+                {linkCopied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => window.location.assign(desktopAuthUrl)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-300 px-3 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200"
+            >
+              <ExternalLink size={15} />
+              Open sign-in link in browser
+            </button>
+          </div>
+        )}
 
         <div className="my-5 flex items-center gap-3">
           <div className="h-px flex-1 bg-white/10" />

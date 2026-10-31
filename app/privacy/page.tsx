@@ -84,10 +84,21 @@ export default function PrivacyPage() {
 
         <Section title="Messages and files">
           <p>
-            Your prompts, photos, and attached files are sent to our AI providers
-            (Google Gemini for chat, Pollinations for generated images) to
-            generate replies, and are processed under their policies.
-            Automated safety filters block sexual and explicit content.
+            While Aetheris inference is being set up, chat prompts and supported
+            attachments are sent through our application services to Google
+            Gemini to generate replies. Google processes that data under its{' '}
+            <a
+              href="https://policies.google.com/privacy"
+              target="_blank"
+              rel="noreferrer"
+              className="text-cyan-300 underline"
+            >
+              privacy policy
+            </a>
+            . Developer API requests are sent to the configured Aetheris
+            inference host. API keys are stored as hashes. Image generation is
+            unavailable until an Aetheris image model is deployed. Automated
+            safety checks may not identify every unsafe request.
             Don&apos;t send anything you wouldn&apos;t want processed —
             especially passwords, ID documents, or other people&apos;s private data.
           </p>

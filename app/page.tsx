@@ -22,7 +22,8 @@ import {
   messageCost,
   refundCredits,
   remainingCredits,
-  spendCredits
+  spendCredits,
+  syncCreditBalance
 } from '@/lib/credits';
 import { PayPalButtons, PayPalScriptProvider } from '@paypal/react-paypal-js';
 import { isBlockedImagePrompt } from '@/lib/safety';
@@ -36,6 +37,7 @@ import {
   FileText,
   FolderKanban,
   LifeBuoy,
+  KeyRound,
   Lock,
   LogIn,
   LogOut,
@@ -46,7 +48,6 @@ import {
   Volume2,
   Download,
   Plus,
-  Smartphone,
   RefreshCw,
   Search,
   Send,
@@ -66,6 +67,9 @@ import {
 type ModelId = 'aetheris-basic' | 'aetheris-asteroid' | 'aetheris-pro';
 
 type PlanTier = 'basic' | 'asteroid' | 'pro';
+
+const WINDOWS_INSTALLER_URL =
+  'https://github.com/AlexPlaysMusic/aetheris-support-ai/releases/latest/download/Aetheris-AI-Setup-latest-x64.exe';
 
 const TIER_RANK: Record<PlanTier | ModelId, number> = {
   basic: 0,
@@ -930,6 +934,7 @@ export default function ChatPage() {
   const [purchaseTier, setPurchaseTier] = useState<'asteroid' | 'pro'>('asteroid');
   const [accountOpen, setAccountOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1007,6 +1012,10 @@ export default function ChatPage() {
   const [outOfCredits, setOutOfCredits] = useState(false);
   const [isPro, setIsPro] = useState(false);
   const [tier, setTier] = useState<PlanTier>('basic');
+  const selectableModels = useMemo(
+    () => MODELS.filter((model) => TIER_RANK[tier] >= TIER_RANK[modelTier(model.id)]),
+    [tier]
+  );
   const [payMethods, setPayMethods] = useState<{
     paypal: boolean;
     stripe: boolean;
@@ -1040,44 +1049,6 @@ export default function ChatPage() {
   const [checkingDraw, setCheckingDraw] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashHidden, setSlashHidden] = useState(false);
-  const [canInstall, setCanInstall] = useState(false);
-  const installEvt = useRef<{
-    prompt: () => Promise<void>;
-  } | null>(null);
-
-  /* capture the PWA install prompt (Chrome/Edge/Android) */
-  useEffect(() => {
-    if (
-      typeof window !== 'undefined' &&
-      window.matchMedia('(display-mode: standalone)').matches
-    ) {
-      return;
-    }
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      installEvt.current = e as unknown as { prompt: () => Promise<void> };
-      setCanInstall(true);
-    };
-    const onInstalled = () => {
-      installEvt.current = null;
-      setCanInstall(false);
-    };
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', onPrompt);
-      window.removeEventListener('appinstalled', onInstalled);
-    };
-  }, []);
-
-  const installApp = () => {
-    const evt = installEvt.current;
-    if (!evt) return;
-    void evt.prompt().then(() => {
-      installEvt.current = null;
-      setCanInstall(false);
-    });
-  };
   const attachErrTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showAttachError = (message: string) => {
@@ -1085,24 +1056,50 @@ export default function ChatPage() {
     if (attachErrTimer.current) clearTimeout(attachErrTimer.current);
     attachErrTimer.current = setTimeout(() => setAttachError(null), 5000);
   };
-  const { data: session, status } = useSession();
-  useEffect(() => {
+  const { data: session, status, update } = useSession();
+  const processingDesktopTicket = useRef<string | null>(null);
+  const redeemDesktopTicket = useCallback(async () => {
     const ticket = new URLSearchParams(window.location.hash.slice(1)).get('desktopTicket');
-    if (!ticket) return;
+    if (!ticket || processingDesktopTicket.current === ticket) return;
+    processingDesktopTicket.current = ticket;
     window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
-    void signIn('desktop-ticket', { ticket, redirect: false })
-      .then(async (result) => {
-        if (result?.ok) {
-          window.location.reload();
-          return;
-        }
-        setAuthOpen(true);
-      })
-      .catch((error: unknown) => {
-        console.error('[aetheris/auth] desktop sign-in ticket could not be redeemed:', error);
-        setAuthOpen(true);
+    setAuthError(null);
+    try {
+      const result = await signIn('desktop-ticket', {
+        ticket,
+        redirect: false
       });
-  }, []);
+      if (!result?.ok) {
+        setAuthError(
+          result?.error === 'CredentialsSignin'
+            ? 'The desktop sign-in link expired or was already used. Please sign in again.'
+            : 'Could not connect this Google account to the desktop app. Please try again.'
+        );
+        setAuthOpen(true);
+        return;
+      }
+      const refreshedSession = await update();
+      if (!refreshedSession?.user?.id) {
+        setAuthError('Sign-in completed, but the desktop session did not refresh. Please try again.');
+        setAuthOpen(true);
+        return;
+      }
+      setAuthError(null);
+      setAuthOpen(false);
+    } catch (error: unknown) {
+      console.error('[aetheris/auth] desktop sign-in ticket could not be redeemed:', error);
+      setAuthError('Could not connect this Google account to the desktop app. Please try again.');
+      setAuthOpen(true);
+    } finally {
+      processingDesktopTicket.current = null;
+    }
+  }, [update]);
+
+  useEffect(() => {
+    window.addEventListener('hashchange', redeemDesktopTicket);
+    void redeemDesktopTicket();
+    return () => window.removeEventListener('hashchange', redeemDesktopTicket);
+  }, [redeemDesktopTicket]);
   const userId = session?.user?.id || session?.user?.email || null;
   const storeKey = storageKeyFor(userId);
   const creditId = useMemo(
@@ -1169,14 +1166,14 @@ export default function ChatPage() {
     };
   }, [status]);
 
-  /* a selection above the membership always falls back to Basic */
+  /* Keep the selected model within the current membership tier. */
   useEffect(() => {
     setSelectedModel((current) =>
-      TIER_RANK[tier] >= TIER_RANK[modelTier(current)]
+      selectableModels.some((model) => model.id === current)
         ? current
         : 'aetheris-basic'
     );
-  }, [tier]);
+  }, [selectableModels]);
 
   /* fetch available payment rails when the upgrade dialog opens */
   useEffect(() => {
@@ -1415,23 +1412,42 @@ export default function ChatPage() {
 
   /* reconcile the header balance with the authoritative server ledger */
   const resyncServerCredits = useCallback(() => {
-    void fetch('/api/credits')
+    void fetch('/api/credits', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: unknown) => {
         const rec =
           d !== null && typeof d === 'object'
             ? (d as Record<string, unknown>)
             : null;
-        if (rec && typeof rec['remaining'] === 'number') {
-          const remaining = rec['remaining'] as number;
+        if (
+          rec?.['strict'] === true &&
+          typeof rec['remaining'] === 'number' &&
+          Number.isFinite(rec['remaining'])
+        ) {
+          const remaining = syncCreditBalance(creditId, rec['remaining']);
           setCreditsLeft(remaining);
-          if (remaining <= 0) setOutOfCredits(true);
+          setOutOfCredits(remaining <= 0);
         }
       })
       .catch(() => {
         /* offline — keep the local balance */
       });
-  }, []);
+  }, [creditId]);
+
+  useEffect(() => {
+    if (status === 'loading') return;
+    resyncServerCredits();
+
+    const refreshWhenActive = () => {
+      if (document.visibilityState === 'visible') resyncServerCredits();
+    };
+    window.addEventListener('focus', refreshWhenActive);
+    document.addEventListener('visibilitychange', refreshWhenActive);
+    return () => {
+      window.removeEventListener('focus', refreshWhenActive);
+      document.removeEventListener('visibilitychange', refreshWhenActive);
+    };
+  }, [status, resyncServerCredits]);
 
   const {
     messages,
@@ -1487,8 +1503,11 @@ export default function ChatPage() {
   });
 
   const activeModel = useMemo(
-    () => MODELS.find((m) => m.id === selectedModel) ?? MODELS[0],
-    [selectedModel]
+    () =>
+      selectableModels.find((model) => model.id === selectedModel) ??
+      selectableModels[0] ??
+      MODELS[0],
+    [selectableModels, selectedModel]
   );
 
   const filteredThreads = useMemo(() => {
@@ -1739,12 +1758,14 @@ export default function ChatPage() {
       setMessages(t.messages);
       // Threads saved on a higher tier than the membership fall back to Basic.
       setSelectedModel(
-        TIER_RANK[tier] >= TIER_RANK[modelTier(t.model)] ? t.model : 'aetheris-basic'
+        selectableModels.some((model) => model.id === t.model)
+          ? t.model
+          : selectableModels[0]?.id ?? 'aetheris-basic'
       );
       setAttachments([]);
       setSidebarOpen(false);
     },
-    [setMessages, tier]
+    [setMessages, selectableModels]
   );
 
   const clearAll = useCallback(() => {
@@ -2122,7 +2143,7 @@ export default function ChatPage() {
 
     if (attachments.length > 0) {
       // Text files + PDFs ride along as message text; photos go as
-      // vision attachments so every provider receives the real content.
+      // vision attachments so a configured multimodal model receives them.
       const fileBlocks = attachments
         .filter((a) => a.kind === 'text' || a.kind === 'pdf')
         .map((a) => `[${a.name}]:\n\`\`\`\n${a.payload}\n\`\`\``);
@@ -2413,6 +2434,14 @@ export default function ChatPage() {
                     >
                       <Settings size={15} className="text-slate-400" /> Settings
                     </button>
+                    <a
+                      href="/api-keys"
+                      role="menuitem"
+                      onClick={() => setAccountOpen(false)}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] text-slate-200 transition hover:bg-white/5"
+                    >
+                      <KeyRound size={15} className="text-slate-400" /> API keys
+                    </a>
                     <div className="border-t border-white/5">
                       <button
                         type="button"
@@ -2678,15 +2707,12 @@ export default function ChatPage() {
             >
               <LifeBuoy size={15} /> Help &amp; Support
             </button>
-            {canInstall && (
-              <button
-                type="button"
-                onClick={installApp}
-                className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[13px] font-medium text-cyan-200 transition hover:bg-cyan-400/15"
-              >
-                <Smartphone size={15} /> Install app
-              </button>
-            )}
+            <a
+              href={WINDOWS_INSTALLER_URL}
+              className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-[13px] font-medium text-cyan-200 transition hover:bg-cyan-400/15"
+            >
+              <Download size={15} /> Download Windows app
+            </a>
             {status === 'authenticated' && session?.user && (
               <div className="mb-2 flex items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2">
                 <ProfileAvatar
@@ -3252,13 +3278,21 @@ export default function ChatPage() {
             </div>
           </form>
           <p className="mt-1.5 text-center text-[10.5px] text-slate-600">
-            Aetheris can make mistakes. Verify important information.
+            Chat temporarily uses Google Gemini. Aetheris can make mistakes; verify important information.
           </p>
         </div>
       </div>
 
       {workspaceOpen && <WorkspacePanel onClose={() => setWorkspaceOpen(false)} />}
-      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
+      {authOpen && (
+        <AuthModal
+          initialError={authError}
+          onClose={() => {
+            setAuthOpen(false);
+            setAuthError(null);
+          }}
+        />
+      )}
 
       {/* ------------------------- upgrade modal ------------------------- */}
       {upgradeOpen && (
