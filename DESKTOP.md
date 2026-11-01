@@ -1,6 +1,8 @@
-# Aetheris AI for Windows
+# Aetheris AI Studio for Windows
 
-The Windows installer is built with:
+The Windows installer launches **Aetheris AI Studio**, a standalone coding
+workspace with a file explorer, editable tabs, an integrated PowerShell
+terminal, run commands, and an Aetheris assistant panel. It is built with:
 
 ```powershell
 npm install
@@ -33,10 +35,10 @@ For a private Blob store, the website issues a one-hour, installer-only signed
 download URL and redirects to Vercel's CDN; the website does not proxy the file.
 Blob storage and download data transfer may incur Vercel charges.
 
-Aetheris AI is a desktop application that securely opens the hosted
-Aetheris workspace. An internet connection is required. Sign-in, AI requests,
-and billing continue to use the configured Aetheris services; no provider
-secrets are included in the installer.
+Aetheris AI Studio reads and writes files only after you open a local folder.
+Terminal commands run in that folder using the current Windows user account.
+AI requests use the hosted Aetheris chat service; no provider secrets are
+included in the installer.
 
 In the desktop app, Google sign-in displays a browser link that can be copied
 or opened directly. After Google approves access, the installed app registers

@@ -1,55 +1,12 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const fs = require('fs/promises');
+const path = require('path');
+const { spawn } = require('child_process');
 
-const APP_URL = process.env.AETHERIS_DESKTOP_URL || 'https://www.aetherisai.me';
-const APP_HOST = new URL(APP_URL).hostname;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 let mainWindow;
-let queuedTicket = process.argv
-  .map(extractDesktopTicket)
-  .find((ticket) => ticket !== null) ?? null;
 
 if (!gotSingleInstanceLock) app.quit();
-
-function extractDesktopTicket(rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    if (url.protocol !== 'aetheris:' || url.hostname !== 'auth') return null;
-    const ticket = url.searchParams.get('ticket');
-    return ticket && /^[a-f0-9]{64}$/.test(ticket) ? ticket : null;
-  } catch {
-    return null;
-  }
-}
-
-function receiveDesktopUrl(rawUrl) {
-  const ticket = extractDesktopTicket(rawUrl);
-  if (!ticket) return;
-  queuedTicket = ticket;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-  void mainWindow.loadURL(`${APP_URL}/#desktopTicket=${encodeURIComponent(ticket)}`);
-    mainWindow.show();
-    mainWindow.focus();
-    queuedTicket = null;
-  }
-}
-
-function isTrustedNavigation(rawUrl) {
-  let url;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== 'https:' && url.hostname !== 'localhost') return false;
-  const host = url.hostname.toLowerCase();
-  return (
-    host === APP_HOST ||
-    host === 'paypal.com' ||
-    host.endsWith('.paypal.com') ||
-    host === 'stripe.com' ||
-    host.endsWith('.stripe.com')
-  );
-}
 
 function openExternal(rawUrl) {
   try {
@@ -62,36 +19,6 @@ function openExternal(rawUrl) {
   }
 }
 
-function restrictNavigation(event, rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    if (
-      url.hostname.toLowerCase() === APP_HOST &&
-      url.pathname === '/desktop-auth/start'
-    ) {
-      event.preventDefault();
-      openExternal(rawUrl);
-      return;
-    }
-  } catch {
-    event.preventDefault();
-    return;
-  }
-  if (isTrustedNavigation(rawUrl)) return;
-  event.preventDefault();
-  openExternal(rawUrl);
-}
-
-function configureWebContents(contents) {
-  contents.setWindowOpenHandler(({ url }) => {
-    if (isTrustedNavigation(url)) return { action: 'allow' };
-    openExternal(url);
-    return { action: 'deny' };
-  });
-  contents.on('will-navigate', restrictNavigation);
-  contents.on('will-redirect', restrictNavigation);
-}
-
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -102,10 +29,11 @@ function createWindow() {
     autoHideMenuBar: true,
     backgroundColor: '#05050A',
     icon: `${__dirname}/assets/icon.ico`,
-    title: 'Aetheris AI | AI Workspace',
+    title: 'Aetheris AI Studio',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.cjs'),
       sandbox: true,
       webSecurity: true
     }
@@ -113,34 +41,38 @@ function createWindow() {
 
   mainWindow.removeMenu();
   mainWindow.once('ready-to-show', () => mainWindow.show());
-  const initialUrl = queuedTicket
-    ? `${APP_URL}/#desktopTicket=${encodeURIComponent(queuedTicket)}`
-    : APP_URL;
-  queuedTicket = null;
-  void mainWindow.loadURL(initialUrl).catch((error) => {
-    console.error('[aetheris-desktop] Could not load the Aetheris workspace:', error);
-  });
+  void mainWindow.loadFile(path.join(__dirname, 'ide.html'));
 }
 
+ipcMain.handle('workspace:choose', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
+  return result.canceled ? null : result.filePaths[0];
+});
+ipcMain.handle('workspace:list', async (_event, root) => {
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  return entries.filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules')
+    .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
+    .map((entry) => ({ name: entry.name, directory: entry.isDirectory(), path: path.join(root, entry.name) }));
+});
+ipcMain.handle('file:read', async (_event, filePath) => fs.readFile(filePath, 'utf8'));
+ipcMain.handle('file:write', async (_event, filePath, content) => fs.writeFile(filePath, content, 'utf8'));
+ipcMain.handle('terminal:run', async (_event, command, cwd) => {
+  const child = spawn(process.platform === 'win32' ? 'powershell.exe' : 'sh', process.platform === 'win32' ? ['-NoProfile', '-Command', command] : ['-c', command], { cwd, windowsHide: true });
+  child.stdout.on('data', (data) => mainWindow.webContents.send('terminal:output', data.toString()));
+  child.stderr.on('data', (data) => mainWindow.webContents.send('terminal:output', data.toString()));
+  child.on('close', (code) => mainWindow.webContents.send('terminal:output', `\n[process exited ${code}]\n`));
+});
+ipcMain.handle('shell:open', (_event, url) => openExternal(url));
+
 if (gotSingleInstanceLock) {
-  app.on('second-instance', (_event, commandLine) => {
-    const deepLink = commandLine.find((argument) => argument.startsWith('aetheris://'));
-    if (deepLink) receiveDesktopUrl(deepLink);
-    else if (mainWindow && !mainWindow.isDestroyed()) {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.show();
       mainWindow.focus();
     }
   });
-  app.on('open-url', (event, url) => {
-    event.preventDefault();
-    receiveDesktopUrl(url);
-  });
   app.whenReady().then(() => {
-    app.setAsDefaultProtocolClient('aetheris');
-    app.setName('Aetheris AI');
-    app.on('web-contents-created', (_event, contents) => {
-      configureWebContents(contents);
-    });
+  app.setName('Aetheris AI');
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

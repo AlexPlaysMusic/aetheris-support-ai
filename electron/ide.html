@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Aetheris AI Studio</title>
+    <link rel="stylesheet" href="ide.css">
+  </head>
+  <body>
+    <header class="titlebar">
+      <div class="brand"><span class="spark">✦</span> Aetheris AI Studio</div>
+      <nav class="menu"><button>File</button><button>Edit</button><button>Selection</button><button>View</button><button>Run</button><button>Terminal</button></nav>
+      <div class="title-actions"><button id="sign-in">Sign in</button><button id="settings">⚙</button></div>
+    </header>
+    <main class="layout">
+      <aside class="activitybar">
+        <button class="activity active" title="Explorer">▤</button>
+        <button class="activity" title="Search">⌕</button>
+        <button class="activity" title="Run">▷</button>
+        <button class="activity" title="Extensions">⊞</button>
+        <div class="activity-bottom"><button class="activity">✦</button><button class="activity">⚙</button></div>
+      </aside>
+      <aside class="explorer panel">
+        <div class="panel-heading"><span>EXPLORER</span><button id="open-folder">Open Folder</button></div>
+        <div id="workspace-name" class="workspace-name">No folder open</div>
+        <div id="file-tree" class="file-tree"><div class="empty">Open a folder to start coding.</div></div>
+      </aside>
+      <section class="workbench">
+        <div id="tabs" class="tabs"></div>
+        <div class="editor-wrap">
+          <div id="line-numbers" class="line-numbers">1</div>
+          <textarea id="editor" spellcheck="false" placeholder="Open a file from the Explorer"></textarea>
+        </div>
+        <section class="terminal-panel">
+          <div class="panel-tabs"><button class="selected">TERMINAL</button><button>PROBLEMS</button><button>OUTPUT</button><button>DEBUG CONSOLE</button><button id="clear-terminal">Clear</button></div>
+          <pre id="terminal-output">Aetheris AI Terminal\r\nReady. Open a workspace and run a command.</pre>
+          <form id="terminal-form"><span class="prompt">$</span><input id="terminal-input" autocomplete="off" placeholder="Type a command, for example npm test"><button>Run</button></form>
+        </section>
+      </section>
+      <aside class="assistant panel">
+        <div class="assistant-heading"><span>✦ AI Assistant</span><span class="muted">AETHERIS</span></div>
+        <div id="messages" class="messages"><div class="message assistant-message">Hi! I'm Aetheris, your coding assistant. Ask me to write, fix, explain, or refactor code.</div></div>
+        <div class="assistant-actions"><button data-prompt="Explain the current file">Explain</button><button data-prompt="Find bugs in the current file">Review</button><button data-prompt="Write tests for the current file">Tests</button><button id="insert-response">Insert</button></div>
+        <form id="chat-form" class="chat-form"><textarea id="chat-input" rows="2" placeholder="Ask Aetheris... (Ctrl+Enter to send)"></textarea><button>Send</button></form>
+      </aside>
+    </main>
+    <footer class="statusbar"><span>✦ main</span><span id="status-message">Ready</span><span id="cursor-position">Ln 1, Col 1</span><span id="language">Plain Text</span><span>UTF-8</span><span>Spaces: 2</span></footer>
+    <script src="ide.js"></script>
+  </body>
+</html>
