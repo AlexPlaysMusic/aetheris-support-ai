@@ -68,8 +68,7 @@ type ModelId = 'aetheris-basic' | 'aetheris-asteroid' | 'aetheris-pro';
 
 type PlanTier = 'basic' | 'asteroid' | 'pro';
 
-const WINDOWS_INSTALLER_URL =
-  'https://github.com/AlexPlaysMusic/aetheris-support-ai/releases/latest/download/Aetheris-AI-Setup-latest-x64.exe';
+const WINDOWS_INSTALLER_URL = '/download/windows';
 
 const TIER_RANK: Record<PlanTier | ModelId, number> = {
   basic: 0,

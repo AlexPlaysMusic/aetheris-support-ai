@@ -12,11 +12,26 @@ The installer is written to
 It creates Start menu and desktop shortcuts and installs for the current
 Windows user.
 
-The website's **Download Windows app** button downloads the latest installer
-from the repository's GitHub Releases. Create a GitHub Release by pushing a
-version tag such as `v1.0.0`, or run the **Build Windows desktop release**
-workflow manually; the workflow builds the installer and publishes both the
-versioned file and the stable `Aetheris-AI-Setup-latest-x64.exe` download.
+The website's **Download Windows app** button points to
+`https://www.aetherisai.me/download/windows`. That Aetheris URL redirects to the
+latest installer in private Vercel Blob storage; the 121 MB installer is not
+bundled into the website deployment or served from GitHub Releases.
+
+To enable downloads and automated releases:
+
+1. Create a Vercel Blob store and connect it to the website's Vercel
+   project.
+2. Add a repository Actions secret named `BLOB_READ_WRITE_TOKEN` containing
+   that store's read-write token. Keep it secret; do not add it to source files
+   or browser-side environment variables.
+3. Run the **Build Windows desktop release** workflow, or push a `v*` tag.
+   The workflow uploads the versioned installer to
+   `downloads/Aetheris-AI-Setup-latest-x64.exe`, replacing the prior download.
+
+The download route returns `404` until the first installer has been uploaded.
+For a private Blob store, the website issues a one-hour, installer-only signed
+download URL and redirects to Vercel's CDN; the website does not proxy the file.
+Blob storage and download data transfer may incur Vercel charges.
 
 Aetheris AI is a desktop application that securely opens the hosted
 Aetheris workspace. An internet connection is required. Sign-in, AI requests,
