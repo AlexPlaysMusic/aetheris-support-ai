@@ -5,12 +5,16 @@
 The developer API and key-management layer are Aetheris-owned. The website's
 chatbot temporarily uses Gemini so visitors can chat while Aetheris has no
 deployed model server. This is a third-party inference service, not an Aetheris
-foundation model. The `/api/v1` developer API remains connected only to the
-separately configured Aetheris inference host.
+foundation model. The `/api/v1` developer API uses a separately configured
+Aetheris inference host when one is set, and otherwise relays through the same
+server-side Gemini connection — callers only ever hold Aetheris API keys, never
+provider keys.
 
-The API and website run as Next.js routes on Vercel. Upstash Redis stores
-SHA-256 hashes and metadata for developer API keys, rate-limit counters, usage,
-and the application's existing credit ledger. Aetheris inference still runs
+Developer API keys (SHA-256 digests plus metadata) are stored in Vercel Blob
+on the production project, in a JSON file directory on self-hosted deploys, or
+in process memory as a last resort — no Redis is required for keys. Upstash
+Redis, when configured, remains the store for the application's credit ledger
+and strict rate counters. Aetheris inference still runs
 separately on a GPU host under Aetheris's control; the repository currently has
 no deployed GPU inference host or selected model weights. No foundation-model
 ownership or training is claimed.
@@ -18,12 +22,14 @@ ownership or training is claimed.
 ```text
 Website / public API (Vercel)
   ├─ /api/chat             website chat (temporarily Gemini)
-  ├─ /api/v1/*             authenticated developer API (Aetheris inference)
+  ├─ /api/v1/*             authenticated developer API
+  │     ├─ configured host → OpenAI-compatible proxy (when set)
+  │     └─ otherwise       → Gemini relay (server-side key)
   ├─ /api/keys             signed-in key creation, usage, and revocation
-  └─ Upstash Redis         key hashes, rate limits, usage, credits
+  └─ Key store             Vercel Blob / file / memory (SHA-256 digests)
              │ HTTPS + private inference bearer key
              ▼
-Self-hosted vLLM server on an NVIDIA GPU host
+Self-hosted vLLM server on an NVIDIA GPU host (optional)
   └─ OpenAI-compatible /v1/models and /v1/chat/completions
 ```
 
@@ -101,7 +107,8 @@ the inference server.
 
 Sign into the Aetheris website and select **API keys** from the account menu,
 or open `/api-keys`. Create a labeled key there. Its plaintext is returned once
-and is never stored in Redis; Redis stores only its SHA-256 digest and metadata.
+and is never stored; only its SHA-256 digest and metadata are kept, in Vercel
+Blob (production), a JSON file directory (self-hosted), or process memory.
 Copy it directly to a secure server-side secret manager. The key prefix, label,
 creation time, request count, token totals, and last-used time remain visible
 in the dashboard. Revoke a key there to immediately invalidate it.
@@ -154,8 +161,10 @@ configured or represented as a production option here.
      Configure `aetheris-asteroid` and `aetheris-pro` only if their separately
      selected models are loaded and validated. Never put inference credentials
      in a client-visible environment variable.
-5. Connect Upstash Redis to the Vercel project. Set
-   `AETHERIS_API_RATE_LIMIT_PER_MINUTE` as needed, then deploy the website.
+5. Upstash Redis is optional: API keys, usage, and revocation work without
+   it (Blob/file/memory store); connect it only when strict server-side
+   credit metering is wanted. Set `AETHERIS_API_RATE_LIMIT_PER_MINUTE` as
+   needed, then deploy the website.
 6. Verify `GET /api/chat` reports configured models and, with an API key,
    `GET /api/v1/models` lists only models returned by the live inference
    server. Send a test completion before announcing a model as available.
@@ -173,8 +182,13 @@ configurable, but a Vercel function can still terminate earlier.
   Keep the key out of client-side variables and browser storage.
   The current chat aliases map to `gemini-3.1-flash-lite`,
   `gemini-3.5-flash-lite`, and `gemini-3.8-flash`, respectively.
-- The public developer API, support replies, and prompt classification use the
-  configured Aetheris inference host. There is no demo fallback.
+- The public developer API uses the configured Aetheris inference host when
+  `AETHERIS_INFERENCE_BASE_URL`/`AETHERIS_INFERENCE_API_KEY` are set, and
+  otherwise relays through the server-side Gemini connection (same three
+  aliases as the website). Paid aliases are gated by the key owner's
+  membership, re-verified against PayPal at request time. Support replies and
+  prompt classification still require a configured inference host and have no
+  fallback.
 - Image generation is explicitly unavailable until a separate Aetheris image
   inference model is deployed; it does not fall back to Gemini.
 - This temporary chat connection should be replaced when a real Aetheris model

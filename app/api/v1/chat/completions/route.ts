@@ -1,10 +1,19 @@
 import {
   findAetherisModel,
-  getAetherisInferenceConfig,
-  listAvailableAetherisModels
+  listAvailableAetherisModels,
+  resolveInferenceConfig,
+  type ResolvedInferenceConfig
 } from '@/lib/aetheris-inference';
 import { recordApiKeyTokens } from '@/lib/aetheris-api-keys';
-import { apiError, authorizePublicApiRequest } from '@/lib/aetheris-public-api';
+import {
+  apiError,
+  authorizePublicApiRequest,
+  modelAllowedForTier,
+  resolveKeyOwnerTier
+} from '@/lib/aetheris-public-api';
+import { messageCost } from '@/lib/credits';
+import { strictIdentityFor, strictRefund, strictSpend } from '@/lib/credit-server';
+import { clientIp } from '@/lib/rate-limit';
 import { readBoundedJson, RequestBodyTooLargeError } from '@/lib/request-body';
 
 export const runtime = 'nodejs';
@@ -85,29 +94,66 @@ export async function POST(req: Request) {
       400
     );
   }
-  let config;
+  let config: ResolvedInferenceConfig;
   try {
-    config = getAetherisInferenceConfig();
+    config = resolveInferenceConfig();
   } catch (error) {
     console.error('[aetheris/public-api] invalid model configuration:', error);
     return apiError('Aetheris inference is not configured correctly.', 503, 'server_error');
   }
-  if (!config.baseUrl || !config.apiKey) {
+  if (config.mode === 'none' || !config.baseUrl || !config.apiKey) {
     return apiError('Aetheris inference is not configured.', 503, 'server_error');
   }
   const model = findAetherisModel(body['model'], config);
   if (!model) return apiError('The requested model is not configured.', 404, 'model_not_found');
 
-  let available: Awaited<ReturnType<typeof listAvailableAetherisModels>>;
-  try {
-    available = await listAvailableAetherisModels(config);
-  } catch (error) {
-    console.error('[aetheris/public-api] inference availability check failed:', error);
-    return apiError('Aetheris inference is not available.', 503, 'server_error');
+  // Membership gate: paid aliases require the key owner's plan. Verified
+  // server-side against the account store and PayPal, so hand-crafted
+  // requests cannot reach Pro/Asteroid without a membership.
+  const tier = await resolveKeyOwnerTier(authorization.record);
+  if (!modelAllowedForTier(model.id, tier)) {
+    return apiError(
+      model.id === 'aetheris-pro'
+        ? 'Aetheris Pro requires a Pro membership for this API key.'
+        : 'Aetheris Asteroid requires a membership for this API key.',
+      403,
+      'permission_error'
+    );
   }
-  if (!available.some((active) => active.id === model.id)) {
-    return apiError('The requested model is not currently available.', 503, 'server_error');
+
+  // Relay mode trusts the configured aliases (they mirror the website's
+  // models); a configured host is probed for live availability first.
+  if (config.mode === 'proxy') {
+    let available: Awaited<ReturnType<typeof listAvailableAetherisModels>>;
+    try {
+      available = await listAvailableAetherisModels(config);
+    } catch (error) {
+      console.error('[aetheris/public-api] inference availability check failed:', error);
+      return apiError('Aetheris inference is not available.', 503, 'server_error');
+    }
+    if (!available.some((active) => active.id === model.id)) {
+      return apiError('The requested model is not currently available.', 503, 'server_error');
+    }
   }
+
+  // Credits: meter against the key owner, priced by the requested model's tier.
+  const modelTier =
+    model.id === 'aetheris-pro'
+      ? 'pro'
+      : model.id === 'aetheris-asteroid'
+        ? 'asteroid'
+        : 'basic';
+  const identity = strictIdentityFor(authorization.record.ownerId, clientIp(req), tier);
+  const cost = messageCost({ tier: modelTier, images: 0, files: 0 });
+  const wallet = await strictSpend(identity, cost);
+  if (!wallet.ok) {
+    return apiError(
+      'Out of credits for today. The daily allowance resets at midnight.',
+      402,
+      'insufficient_quota'
+    );
+  }
+  const spent = cost;
 
   const stream = body['stream'] !== false;
   const requestedTokens =
@@ -122,7 +168,10 @@ export async function POST(req: Request) {
     stream,
     max_tokens: maxTokens
   };
-  if (stream) upstreamBody['stream_options'] = { include_usage: true };
+  // Token accounting rides on stream_options; only the configured host path
+  // is verified to support it, so the Gemini relay omits it (requests still
+  // work; token usage simply isn't recorded there).
+  if (stream && config.mode === 'proxy') upstreamBody['stream_options'] = { include_usage: true };
   const temperature = boundedNumber(body['temperature'], 0, 2);
   const topP = boundedNumber(body['top_p'], 0, 1);
   const presencePenalty = boundedNumber(body['presence_penalty'], -2, 2);
@@ -159,10 +208,12 @@ export async function POST(req: Request) {
       signal
     });
   } catch (error) {
+    await strictRefund(identity, spent);
     console.error('[aetheris/public-api] inference request failed:', error);
     return apiError('Aetheris inference could not be reached.', 503, 'server_error');
   }
   if (!upstream.ok) {
+    await strictRefund(identity, spent);
     console.error('[aetheris/public-api] inference returned status:', upstream.status);
     return apiError(
       upstream.status === 429
@@ -178,9 +229,11 @@ export async function POST(req: Request) {
     try {
       response = await upstream.json();
     } catch {
+      await strictRefund(identity, spent);
       return apiError('Aetheris inference returned an invalid response.', 502, 'server_error');
     }
     if (!isRecord(response)) {
+      await strictRefund(identity, spent);
       return apiError('Aetheris inference returned an invalid response.', 502, 'server_error');
     }
     const usage = usageCounts(response['usage']);

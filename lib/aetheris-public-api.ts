@@ -4,6 +4,41 @@ import {
   recordApiKeyUsage,
   type ApiKeyRecord
 } from './aetheris-api-keys';
+import { resolveTier, type PlanTierStatus } from './pro';
+import { getSubscription, subscriptionIsPaying } from './paypal';
+
+/**
+ * The key owner's effective membership tier. Starts from the account's
+ * stored/cookie state, then falls back to the membership claim embedded in
+ * the key — which is only honored after a live PayPal check, so a claim
+ * alone never grants paid access and cancels lapse within one request.
+ */
+export async function resolveKeyOwnerTier(
+  record: ApiKeyRecord
+): Promise<PlanTierStatus> {
+  let tier: PlanTierStatus = 'basic';
+  try {
+    tier = (await resolveTier(record.ownerId, null, null)).tier;
+  } catch {
+    tier = 'basic';
+  }
+  if (tier !== 'basic') return tier;
+  if (!record.claimTier || !record.claimSubscriptionId) return 'basic';
+  try {
+    const live = await getSubscription(record.claimSubscriptionId);
+    if (live.ok && subscriptionIsPaying(live.status)) return record.claimTier;
+  } catch {
+    // PayPal unreachable: fail closed to basic.
+  }
+  return 'basic';
+}
+
+/** Server-side gate: paid aliases require the key owner's membership. */
+export function modelAllowedForTier(modelId: string, tier: PlanTierStatus): boolean {
+  if (modelId === 'aetheris-pro') return tier === 'pro';
+  if (modelId === 'aetheris-asteroid') return tier !== 'basic';
+  return true;
+}
 
 export async function authorizePublicApiRequest(
   req: Request
