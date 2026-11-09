@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   findAetherisModel,
   getAetherisInferenceConfig,
-  GEMINI_OPENAI_BASE_URL,
   resolveInferenceConfig
 } from '../aetheris-inference';
 
@@ -66,48 +65,37 @@ describe('Aetheris inference configuration', () => {
 });
 
 describe('resolveInferenceConfig', () => {
-  it('falls back to the Gemini relay when no host is configured', () => {
+  it('never falls back to the Google key — it serves the website chat only', () => {
     vi.stubEnv('AETHERIS_INFERENCE_BASE_URL', '');
     vi.stubEnv('AETHERIS_INFERENCE_API_KEY', '');
     vi.stubEnv('AETHERIS_MODELS_JSON', '[]');
     vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'server-only-google-key');
 
-    const config = resolveInferenceConfig();
-    expect(config.mode).toBe('gemini');
-    expect(config.baseUrl).toBe(GEMINI_OPENAI_BASE_URL);
-    expect(config.apiKey).toBe('server-only-google-key');
-    expect(config.models.map((model) => model.id)).toEqual([
-      'aetheris-basic',
-      'aetheris-asteroid',
-      'aetheris-pro'
-    ]);
-    expect(findAetherisModel('aetheris-pro', config)?.upstreamModel).toBe(
-      'gemini-3.8-flash'
-    );
+    expect(resolveInferenceConfig().mode).toBe('none');
   });
 
-  it('prefers a configured host over the relay', () => {
-    vi.stubEnv('AETHERIS_INFERENCE_BASE_URL', 'https://inference.example.com/v1');
-    vi.stubEnv('AETHERIS_INFERENCE_API_KEY', 'host-key');
+  it('serves through the configured provider', () => {
+    vi.stubEnv('AETHERIS_INFERENCE_BASE_URL', 'https://openrouter.ai/api/v1');
+    vi.stubEnv('AETHERIS_INFERENCE_API_KEY', 'provider-key');
     vi.stubEnv(
       'AETHERIS_MODELS_JSON',
       JSON.stringify([
-        { id: 'aetheris-basic', upstreamModel: 'host/model', label: 'Basic', maxTokens: 1024 }
+        { id: 'aetheris-basic', upstreamModel: 'vendor/model', label: 'Basic', maxTokens: 1024 }
       ])
     );
     vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'google-key');
 
     const config = resolveInferenceConfig();
     expect(config.mode).toBe('proxy');
-    expect(config.baseUrl).toBe('https://inference.example.com/v1');
+    expect(config.baseUrl).toBe('https://openrouter.ai/api/v1');
+    expect(config.apiKey).toBe('provider-key');
     expect(config.models).toHaveLength(1);
   });
 
-  it('reports none when neither a host nor a Google key exists', () => {
+  it('reports none when no provider is configured', () => {
     vi.stubEnv('AETHERIS_INFERENCE_BASE_URL', '');
     vi.stubEnv('AETHERIS_INFERENCE_API_KEY', '');
     vi.stubEnv('AETHERIS_MODELS_JSON', '[]');
-    vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', '');
 
     expect(resolveInferenceConfig().mode).toBe('none');
   });

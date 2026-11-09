@@ -5,10 +5,10 @@
 The developer API and key-management layer are Aetheris-owned. The website's
 chatbot temporarily uses Gemini so visitors can chat while Aetheris has no
 deployed model server. This is a third-party inference service, not an Aetheris
-foundation model. The `/api/v1` developer API uses a separately configured
-Aetheris inference host when one is set, and otherwise relays through the same
-server-side Gemini connection — callers only ever hold Aetheris API keys, never
-provider keys.
+foundation model. The `/api/v1` developer API serves exclusively through a
+configured OpenAI-compatible provider (OpenRouter, Groq, local vLLM, or an
+Aetheris inference host) — Google's key is deliberately not a fallback there.
+Callers only ever hold Aetheris API keys, never provider keys.
 
 Developer API keys (SHA-256 digests plus metadata) are stored in Vercel Blob
 on the production project, in a JSON file directory on self-hosted deploys, or
@@ -23,14 +23,13 @@ ownership or training is claimed.
 Website / public API (Vercel)
   ├─ /api/chat             website chat (temporarily Gemini)
   ├─ /api/v1/*             authenticated developer API
-  │     ├─ configured host → OpenAI-compatible proxy (when set)
-  │     └─ otherwise       → Gemini relay (server-side key)
+  │     └─ configured OpenAI-compatible provider (required; no Google fallback)
   ├─ /api/keys             signed-in key creation, usage, and revocation
   └─ Key store             Vercel Blob / file / memory (SHA-256 digests)
-             │ HTTPS + private inference bearer key
+             │ HTTPS + private provider bearer key
              ▼
-Self-hosted vLLM server on an NVIDIA GPU host (optional)
-  └─ OpenAI-compatible /v1/models and /v1/chat/completions
+OpenAI-compatible provider (OpenRouter, Groq, local vLLM, or Aetheris GPU host)
+  └─ /v1/models and /v1/chat/completions
 ```
 
 ## API endpoints
@@ -182,13 +181,13 @@ configurable, but a Vercel function can still terminate earlier.
   Keep the key out of client-side variables and browser storage.
   The current chat aliases map to `gemini-3.1-flash-lite`,
   `gemini-3.5-flash-lite`, and `gemini-3.8-flash`, respectively.
-- The public developer API uses the configured Aetheris inference host when
-  `AETHERIS_INFERENCE_BASE_URL`/`AETHERIS_INFERENCE_API_KEY` are set, and
-  otherwise relays through the server-side Gemini connection (same three
-  aliases as the website). Paid aliases are gated by the key owner's
-  membership, re-verified against PayPal at request time. Support replies and
-  prompt classification still require a configured inference host and have no
-  fallback.
+- The public developer API serves exclusively through the configured
+  OpenAI-compatible provider (`AETHERIS_INFERENCE_BASE_URL` /
+  `AETHERIS_INFERENCE_API_KEY` / `AETHERIS_MODELS_JSON`); when those are
+  unset it returns 503 and never falls back to Google. Paid aliases are gated
+  by the key owner's membership, re-verified against PayPal at request time.
+  Support replies and prompt classification also require a configured
+  inference host and have no fallback.
 - Image generation is explicitly unavailable until a separate Aetheris image
   inference model is deployed; it does not fall back to Gemini.
 - This temporary chat connection should be replaced when a real Aetheris model

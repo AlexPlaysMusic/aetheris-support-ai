@@ -102,7 +102,11 @@ export async function POST(req: Request) {
     return apiError('Aetheris inference is not configured correctly.', 503, 'server_error');
   }
   if (config.mode === 'none' || !config.baseUrl || !config.apiKey) {
-    return apiError('Aetheris inference is not configured.', 503, 'server_error');
+    return apiError(
+      'Aetheris inference provider is not configured. Set AETHERIS_INFERENCE_BASE_URL and AETHERIS_INFERENCE_API_KEY.',
+      503,
+      'server_error'
+    );
   }
   const model = findAetherisModel(body['model'], config);
   if (!model) return apiError('The requested model is not configured.', 404, 'model_not_found');
@@ -121,19 +125,17 @@ export async function POST(req: Request) {
     );
   }
 
-  // Relay mode trusts the configured aliases (they mirror the website's
-  // models); a configured host is probed for live availability first.
-  if (config.mode === 'proxy') {
-    let available: Awaited<ReturnType<typeof listAvailableAetherisModels>>;
-    try {
-      available = await listAvailableAetherisModels(config);
-    } catch (error) {
-      console.error('[aetheris/public-api] inference availability check failed:', error);
-      return apiError('Aetheris inference is not available.', 503, 'server_error');
-    }
-    if (!available.some((active) => active.id === model.id)) {
-      return apiError('The requested model is not currently available.', 503, 'server_error');
-    }
+  // The configured provider is probed for live availability first, so only
+  // actually-loaded aliases are served.
+  let available: Awaited<ReturnType<typeof listAvailableAetherisModels>>;
+  try {
+    available = await listAvailableAetherisModels(config);
+  } catch (error) {
+    console.error('[aetheris/public-api] inference availability check failed:', error);
+    return apiError('Aetheris inference is not available.', 503, 'server_error');
+  }
+  if (!available.some((active) => active.id === model.id)) {
+    return apiError('The requested model is not currently available.', 503, 'server_error');
   }
 
   // Credits: meter against the key owner, priced by the requested model's tier.
@@ -168,10 +170,9 @@ export async function POST(req: Request) {
     stream,
     max_tokens: maxTokens
   };
-  // Token accounting rides on stream_options; only the configured host path
-  // is verified to support it, so the Gemini relay omits it (requests still
-  // work; token usage simply isn't recorded there).
-  if (stream && config.mode === 'proxy') upstreamBody['stream_options'] = { include_usage: true };
+  // Token accounting rides on stream_options — standard on OpenAI-compatible
+  // providers (OpenRouter, Groq, vLLM, Aetheris hosts).
+  if (stream) upstreamBody['stream_options'] = { include_usage: true };
   const temperature = boundedNumber(body['temperature'], 0, 2);
   const topP = boundedNumber(body['top_p'], 0, 1);
   const presencePenalty = boundedNumber(body['presence_penalty'], -2, 2);

@@ -152,62 +152,23 @@ export async function listAvailableAetherisModels(
   return config.models.filter((model) => loadedIds.has(model.upstreamModel));
 }
 
-/** Google's OpenAI-compatible endpoint — used as the relay when no
- *  Aetheris inference host is configured. The Google key stays server-side. */
-export const GEMINI_OPENAI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai';
-
-/** The three Aetheris aliases served through the Gemini relay. Kept in step
- *  with the website's chat route (gemini-3.1/3.5/3.8 mapping). */
-const GEMINI_RELAY_MODELS: AetherisModel[] = [
-  {
-    id: 'aetheris-basic',
-    upstreamModel: 'gemini-3.1-flash-lite',
-    label: 'Aetheris Basic',
-    maxTokens: 2048,
-    supportsVision: false
-  },
-  {
-    id: 'aetheris-asteroid',
-    upstreamModel: 'gemini-3.5-flash-lite',
-    label: 'Aetheris Asteroid',
-    maxTokens: 4096,
-    supportsVision: false
-  },
-  {
-    id: 'aetheris-pro',
-    upstreamModel: 'gemini-3.8-flash',
-    label: 'Aetheris Pro',
-    maxTokens: 4096,
-    supportsVision: true
-  }
-];
-
 export type ResolvedInferenceConfig = AetherisInferenceConfig & {
-  /** proxy: configured OpenAI-compatible host · gemini: built-in relay · none: unconfigured */
-  mode: 'proxy' | 'gemini' | 'none';
+  /** proxy: configured OpenAI-compatible provider · none: unconfigured */
+  mode: 'proxy' | 'none';
 };
 
 /**
- * Inference configuration with a working default: a configured host wins,
- * otherwise the server's Gemini key serves the Aetheris aliases through
- * Google's OpenAI-compatible endpoint, so the developer API works with zero
- * additional environment setup. Throws only for genuinely invalid config
+ * Inference configuration for the developer API: one OpenAI-compatible
+ * provider (OpenRouter, Groq, a local server, or an Aetheris inference host)
+ * configured through AETHERIS_INFERENCE_BASE_URL / AETHERIS_INFERENCE_API_KEY /
+ * AETHERIS_MODELS_JSON. Google's key serves the website chat only and is
+ * deliberately not a fallback here. Throws only for genuinely invalid config
  * (malformed AETHERIS_MODELS_JSON / non-HTTPS host) — that stays loud.
  */
 export function resolveInferenceConfig(): ResolvedInferenceConfig {
   const env = getAetherisInferenceConfig();
   if (env.baseUrl !== '' && env.apiKey !== '') {
     return { ...env, mode: 'proxy' };
-  }
-  const googleKey = (process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? '').trim();
-  if (googleKey !== '') {
-    return {
-      baseUrl: GEMINI_OPENAI_BASE_URL,
-      apiKey: googleKey,
-      timeoutMs: env.timeoutMs,
-      models: GEMINI_RELAY_MODELS,
-      mode: 'gemini'
-    };
   }
   return { ...env, mode: 'none' };
 }

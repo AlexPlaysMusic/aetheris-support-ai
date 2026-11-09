@@ -20,16 +20,16 @@ export async function GET(req: Request) {
   try {
     const config = resolveInferenceConfig();
     if (config.mode === 'none') {
-      return apiError('Aetheris inference is not configured.', 503, 'server_error');
+      return apiError(
+        'Aetheris inference provider is not configured. Set AETHERIS_INFERENCE_BASE_URL and AETHERIS_INFERENCE_API_KEY.',
+        503,
+        'server_error'
+      );
     }
     const tier = await resolveKeyOwnerTier(authorization.record);
-    // Relay mode serves the configured aliases directly (no upstream probe —
-    // the relay's alias list mirrors the website). A configured host is
-    // queried live so only actually-loaded models are advertised.
-    const models =
-      config.mode === 'gemini'
-        ? config.models
-        : await listAvailableAetherisModels(config);
+    // The configured provider is queried live so only actually-loaded models
+    // are advertised.
+    const models = await listAvailableAetherisModels(config);
     return Response.json(
       {
         object: 'list',
